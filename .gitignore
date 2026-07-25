@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+src/node_modules/
+
+# Frontend build output
+src/dist/
+
+# Rust build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Tauri logs
+src-tauri/.tauri/
+
+# OS / editor
+.DS_Store
+*.log
+
+# Local app data
+*.db
+
+# WorkBuddy local memory (private, never commit)
+.workbuddy/
+
+# Legacy web-shell prototype (archived, not part of the app)
+legacy/

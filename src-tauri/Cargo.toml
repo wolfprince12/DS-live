@@ -1,0 +1,20 @@
+[package]
+name = "dsonmac"
+version = "0.1.0"
+description = "本地运行的 DeepSeek 桌面客户端，自带长期记忆"
+authors = ["wolfprince"]
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+keyring = "3"
+futures-util = "0.3"
+anyhow = "1"

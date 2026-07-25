@@ -1,0 +1,451 @@
+:root {
+  --bg: #ffffff;
+  --sidebar-bg: #f7f7f8;
+  --text: #1f1f1f;
+  --text-soft: #6b6b6b;
+  --border: #ececec;
+  --accent: #4d6bfe;
+  --user-bubble: #eaf0ff;
+  --assistant-bubble: #f5f5f5;
+  --hover: #ececec;
+  --input-bg: #ffffff;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="dark"] {
+  --bg: #1a1a1a;
+  --sidebar-bg: #141414;
+  --text: #e6e6e6;
+  --text-soft: #9a9a9a;
+  --border: #2a2a2a;
+  --accent: #6d86ff;
+  --user-bubble: #2d3354;
+  --assistant-bubble: #242424;
+  --hover: #262626;
+  --input-bg: #242424;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ===== 侧边栏 ===== */
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 14px 12px;
+}
+
+.brand {
+  font-size: 17px;
+  font-weight: 700;
+  padding: 4px 6px 12px;
+  letter-spacing: 0.3px;
+}
+
+.new-chat-btn {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.new-chat-btn:hover {
+  background: var(--hover);
+}
+
+.conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+}
+
+.conv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  color: var(--text);
+  margin-bottom: 2px;
+  line-height: 1.3;
+}
+
+.conv-item:hover {
+  background: var(--hover);
+}
+
+.conv-item.active {
+  background: var(--hover);
+  font-weight: 600;
+}
+
+.conv-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 6px;
+}
+
+.conv-del {
+  opacity: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.conv-item:hover .conv-del {
+  opacity: 1;
+}
+
+.conv-del:hover {
+  color: #ff4d4f;
+  background: var(--bg);
+}
+
+.sidebar-footer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.side-btn {
+  width: 100%;
+  padding: 9px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+}
+
+.side-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* ===== 主区域 ===== */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.model-select {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label input {
+  cursor: pointer;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ===== 消息区 ===== */
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 0;
+}
+
+.msg {
+  display: flex;
+  gap: 14px;
+  padding: 14px 24px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.msg.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.msg.assistant .avatar {
+  background: var(--accent);
+}
+
+.msg.user .avatar {
+  background: #888;
+}
+
+.bubble {
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.65;
+  max-width: 100%;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.msg.user .bubble {
+  background: var(--user-bubble);
+}
+
+.msg.assistant .bubble {
+  background: var(--assistant-bubble);
+  flex: 1;
+}
+
+.thinking {
+  margin-bottom: 8px;
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 10px;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.thinking summary {
+  cursor: pointer;
+  color: var(--text-soft);
+}
+
+.thinking-content {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-soft);
+  gap: 10px;
+}
+
+.empty-state .logo {
+  font-size: 34px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.empty-state .hint {
+  font-size: 14px;
+}
+
+/* ===== 输入区 ===== */
+.input-area {
+  padding: 12px 24px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.input-box {
+  max-width: 860px;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--input-bg);
+  padding: 10px 12px;
+  box-shadow: var(--shadow);
+}
+
+#input {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.5;
+  max-height: 180px;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ghost-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-soft);
+  border-radius: 9px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ghost-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.send-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.send-btn:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+
+/* ===== 设置弹窗 ===== */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal-mask[hidden] {
+  display: none;
+}
+
+.modal {
+  width: 380px;
+  background: var(--bg);
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.modal h3 {
+  margin-bottom: 16px;
+}
+
+.modal label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-soft);
+  margin: 12px 0 6px;
+}
+
+.modal input,
+.modal select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.tip {
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.tip a {
+  color: var(--accent);
+}
