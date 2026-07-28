@@ -45,7 +45,12 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-- **Mac 签名公证**：在仓库 Secrets 配置 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID`，CI 自动 Developer ID 签名并公证。
+下载安装包请到 GitHub Releases（打 tag 自动发布）。
+
+- **Mac（不做签名公证）**：项目无 Apple 开发者账号，CI 出 **ad-hoc 签名**的 `.app` / `.dmg`，安装后首次打开会被 Gatekeeper 拦截「无法验证开发者」。三种绕过方式任选其一：
+  1. 右键 App →「打开」；
+  2. 终端执行 `xattr -cr /Applications/DSonMac.app` 后再打开；
+  3. 系统设置 → 隐私与安全性 → 点「仍要打开」。
 - **Windows**：CI 出安装包，暂不强制代码签名（用户下载会有 SmartScreen 提示，可接受）。
 
 ## 目录结构

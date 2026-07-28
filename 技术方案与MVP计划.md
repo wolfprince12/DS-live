@@ -14,7 +14,7 @@
   - 记忆检索：DeepSeek embeddings API 生成向量 + 本地余弦相似度 Top-K
   - 密钥安全：存系统钥匙串（macOS Keychain / Windows Credential Manager），不落明文
 - **AI 能力**：
-  - 对话：`deepseek-chat` / `deepseek-reasoner`
+  - 对话：`deepseek-v4-flash`（非思考）/ `deepseek-v4-pro`（思考，默认开启 `thinking`）
   - 记忆 embedding：DeepSeek `embeddings` 接口（成本极低）
 - **跨平台构建**：GitHub Actions CI，push tag 自动构建 Mac(arm64) + Windows(x64) 并发布 Release，你不用碰 Windows 机器。
 
@@ -27,7 +27,7 @@
 - [ ] 首次启动引导配置 API Key（写入系统钥匙串，不落明文）
 - [ ] 多会话聊天 UI：新建 / 切换 / 重命名 / 删除对话
 - [ ] 流式输出（SSE 逐字显示）
-- [ ] 模型选择（deepseek-chat / deepseek-reasoner）
+- [ ] 模型选择（deepseek-v4-flash / deepseek-v4-pro，深度思考开关 `thinking`）
 - [ ] 本地持久化全部对话与消息（SQLite）
 - [ ] **长期记忆**：每条用户消息入库时生成 embedding；新对话/每轮自动检索 Top-K 相关历史片段注入 system prompt
 - [ ] 主题：浅色 / 深色 / 跟随系统（沿用你已有的偏好逻辑）
@@ -50,13 +50,13 @@ DSonMac/
 └─ .github/workflows/release.yml
 ```
 
-## 6. 发布与签名（已定：Mac 公证 + Win 走 CI）
-- **Mac**：Developer ID Application 证书签名 + 公证（`notarytool`）。你有 Apple 开发者账号 → 需要：
-  - Developer ID Application 证书（钥匙串）
-  - 公证用 App Store Connect API Key（.p8 + key id + issuer id）或 app-specific password
-  - CI 注入这些密钥（GitHub Secrets），无需你手动操作
+## 6. 发布与签名（已定：放弃 Mac 签名，Windows 走 CI）
+- **Mac**：**不做苹果签名与公证**（用户无 Apple 开发者账号——原账号已被苹果清理，且不愿再付年费）。
+  - CI 自动退化为 **ad-hoc 签名**出 `.app` + `.dmg`，可安装，但首次打开会被 Gatekeeper 拦截"无法验证开发者"。
+  - 用户侧绕过方式三选一：① 右键 App →「打开」；② 终端 `xattr -cr /Applications/DSonMac.app`；③ 系统设置 → 隐私与安全性 → 点「仍要打开」。
+  - 对开源免费工具属可接受体验；若未来购买 Developer Program 账号，重新在 release.yml 配置 `APPLE_*` Secrets 即可恢复公证。
 - **Windows**：CI 出 `.msi`（WiX）或 `.exe`（NSIS）；**暂不强签名**（用户下载有 SmartScreen 提示，可接受）；GitHub Releases 分发。
-- 全程 GitHub Actions：打 tag 即构建双端并发布 Release。
+- 全程 GitHub Actions：打 tag 即构建双端并发布 Release（release.yml 已移除 Mac 签名 env）。
 
 ## 7. 非 MVP（后续可选）
 - 记忆可视化 / 手动编辑 / 清理
