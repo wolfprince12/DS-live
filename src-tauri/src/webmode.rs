@@ -86,6 +86,9 @@ pub fn relayout(window: &Window) {
 }
 
 /// 进入网页模式：创建 deepseek 子视图，摆位 + 注入记忆。
+/// 通过 `on_navigation` 拦截 `dsondt://` 自定义 scheme 来桥接外部 webview
+/// 与宿主本地命令——不走 Tauri IPC（外部 URL 的 webview 调自定义命令在 Tauri 2
+/// 已知有 capability 坑，issue #10298/#10317），更稳。
 pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     let state = app.state::<WebState>();
     if state.is_active() {
@@ -103,9 +106,25 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     let url: tauri::Url = "https://chat.deepseek.com"
         .parse()
         .expect("deepseek URL 必合法");
+    let app_for_nav = app.clone();
     main.add_child(
         WebviewBuilder::new(WEB_WEBVIEW, WebviewUrl::External(url))
             .initialization_script(&inject_script(memories_json))
+            .on_navigation(move |nav_url| {
+                // deepseek webview 通过 location.replace('dsondt://xxx') 通知宿主；
+                // WKWebView 触发 decidePolicyForNavigationAction delegate，
+                // 我们返回 false 阻止实际导航（WKWebView 在 delegate 决定前
+                // 不会真去解析 dsondt: scheme，也不会影响主页面 URL）。
+                if nav_url.scheme() == "dsondt" {
+                    let action = nav_url.host_str().unwrap_or("").to_string();
+                    let app = app_for_nav.clone();
+                    tauri::async_runtime::spawn(async move {
+                        handle_dsondt_action(&app, &action);
+                    });
+                    return false;
+                }
+                true
+            })
             .auto_resize(),
         LogicalPosition::new(0.0, TOP_BAR_H),
         LogicalSize::new(w, (h - TOP_BAR_H).max(1.0)),
@@ -115,6 +134,23 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     state.set_active(true);
     state.set_suppressed(false);
     Ok(())
+}
+
+/// 处理 deepseek webview 通过 `dsondt://<action>` 派发过来的动作。
+/// 当前支持的 action：
+/// - `open-memory`：藏起远程视图，通知本地 UI 弹出记忆库面板
+fn handle_dsondt_action(app: &AppHandle, action: &str) {
+    match action {
+        "open-memory" => {
+            set_suppressed(app, true);
+            if let Some(ui) = app.get_webview(UI_WEBVIEW) {
+                let _ = ui.eval("window.dispatchEvent(new CustomEvent('dsondt:open-memory'))");
+            }
+        }
+        _ => {
+            // 未知 action：忽略，避免误处理未来扩展时的新 scheme
+        }
+    }
 }
 
 /// 退出网页模式：deepseek 子视图关闭，下次切回重新 add_child。
@@ -147,68 +183,245 @@ pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
     }
 }
 
-/// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图。
+/// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图（供注入脚本的 setMemories 消费）。
 pub fn push_memories(app: &AppHandle, json: &str) {
-    let escaped = json.replace('\\', "\\\\").replace('\'', "\\'");
     let js = format!(
-        "window.__DSONDT_PUSH_MEMORIES__ && window.__DSONDT_PUSH_MEMORIES__('{escaped}')"
+        "try{{window.__DSONDT__&&window.__DSONDT__.setMemories({json})}}catch(e){{}}"
     );
     if let Some(w) = app.get_webview(WEB_WEBVIEW) {
         let _ = w.eval(&js);
     }
 }
 
-/// 注入到 deepseek 页面的 JS：监听 fetch、构建本地记忆快照、把用户消息被动沉淀为 web 记忆。
-fn inject_script(memories_json: &str) -> String {
-    let memories_json_json = memories_json; // 命名占位，避免和 format 占位符冲突
-    format!(
-        r#"
-(function () {{
-  if (window.__DSONDT_INSTALLED__) return;
-  window.__DSONDT_INSTALLED__ = true;
-  const INITIAL_MEMORIES = {memories_json_json};
-  let currentMemories = INITIAL_MEMORIES;
+/// 注入到 deepseek 页面的 JS（复原自早期可工作的「记忆前置注入」实现 c95a117）：
+/// - 🧠 注入记忆：把本地记忆按相关性拼成前缀块、兼容 React 受控组件地填进输入框（用户自己按回车）；
+/// - 📚 打开记忆库：藏起网页层并通知本地 UI 弹记忆库面板；
+/// - 被动监听 fetch 把用户消息沉淀为 web 记忆；IPC 不可用时本地二元组打分兜底。
+/// 记忆快照在初始化时烘焙进脚本（`__DSONDT_MEMORIES__` 占位符由 `inject_script` 替换）。
+const INJECT_JS: &str = r##"
+(function () {
+  if (window.__DSONDT_INJECTED__) return;
+  window.__DSONDT_INJECTED__ = true;
 
-  function renderSystemBlock() {{
-    if (!currentMemories || currentMemories.length === 0) return null;
-    const lines = currentMemories.map(function (m) {{ return '- ' + m.content; }});
-    return [
-      '[DSonDT 长期记忆 — 来自你本地]',
-      '下列内容是用户之前跟你说过的关键背景，AI 应当主动参考（不要复述给用户）：',
-    ].concat(lines).join('\n');
-  }}
+  var MEMORIES = __DSONDT_MEMORIES__;
+  var TOP_K = 5;
+  var autoSink = true;
 
-  // Rust 端通过 eval 调用本函数推新记忆进来
-  window.__DSONDT_PUSH_MEMORIES__ = function (json) {{
-    try {{
-      currentMemories = JSON.parse(json);
-    }} catch (e) {{ console.error('[DSonDT] push memories parse failed', e); }}
-  }};
+  function invoke(cmd, args) {
+    try {
+      var it = window.__TAURI_INTERNALS__;
+      if (it && typeof it.invoke === 'function') return it.invoke(cmd, args || {});
+    } catch (e) {}
+    return Promise.reject(new Error('ipc-unavailable'));
+  }
 
-  const origFetch = window.fetch;
-  window.fetch = async function (input, init) {{
-    try {{
-      const url = typeof input === 'string' ? input : (input && input.url) || '';
-      if (url.includes('/api/v0/chat/completion') || url.includes('chat/completion')) {{
-        let body = init && init.body;
-        if (typeof body === 'string') {{
-          try {{
-            const data = JSON.parse(body);
-            if (Array.isArray(data && data.messages)) {{
-              const last = data.messages[data.messages.length - 1];
-              if (last && last.role === 'user' && last.content) {{
-                try {{
-                  await window.__TAURI_INTERNALS__.invoke('add_web_memory', {{ content: last.content }});
-                }} catch (_) {{}}
-              }}
-            }}
-          }} catch (_) {{}}
-        }}
-      }}
-    }} catch (_) {{}}
+  function bigrams(s) {
+    s = (s || '').toLowerCase().replace(/\s+/g, '');
+    var out = [];
+    if (s.length < 2) return s ? [s] : [];
+    for (var i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2));
+    return out;
+  }
+  function localSearch(q, k) {
+    if (!MEMORIES || !MEMORIES.length) return [];
+    var qg = bigrams(q);
+    if (!qg.length) {
+      return MEMORIES.slice(0, k).map(function (m) { return m.content; });
+    }
+    var scored = [];
+    for (var i = 0; i < MEMORIES.length; i++) {
+      var cg = bigrams(MEMORIES[i].content);
+      if (!cg.length) continue;
+      var set = Object.create(null);
+      for (var j = 0; j < cg.length; j++) set[cg[j]] = 1;
+      var hit = 0;
+      for (var n = 0; n < qg.length; n++) if (set[qg[n]]) hit++;
+      var s = hit / qg.length;
+      if (s > 0.05) scored.push({ s: s, c: MEMORIES[i].content });
+    }
+    scored.sort(function (a, b) { return b.s - a.s; });
+    return scored.slice(0, k).map(function (x) { return x.c; });
+  }
+
+  function search(q) {
+    return invoke('search_memories', { query: q, topK: TOP_K })
+      .then(function (r) { return (r && r.length) ? r : localSearch(q, TOP_K); })
+      .catch(function () { return localSearch(q, TOP_K); });
+  }
+
+  function findInput() {
+    var sels = [
+      'textarea#chat-input',
+      'textarea[id*="chat"]',
+      'div[contenteditable="true"][role="textbox"]',
+      'textarea',
+      'div[contenteditable="true"]'
+    ];
+    for (var i = 0; i < sels.length; i++) {
+      var list = document.querySelectorAll(sels[i]);
+      for (var j = 0; j < list.length; j++) {
+        var el = list[j];
+        var r = el.getBoundingClientRect();
+        if (r.width > 120 && r.height > 12) return el;
+      }
+    }
+    return null;
+  }
+
+  function readInput(el) {
+    if (!el) return '';
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') return el.value || '';
+    return el.innerText || '';
+  }
+
+  function writeInput(el, val) {
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+      var proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (desc && desc.set) desc.set.call(el, val); else el.value = val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.focus();
+      try { el.setSelectionRange(val.length, val.length); } catch (e) {}
+      return true;
+    }
+    try {
+      el.focus();
+      var sel = window.getSelection();
+      var range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      document.execCommand('insertText', false, val);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function buildBlock(mems) {
+    var lines = ['【长期记忆 · 由 DSonDT 本地记忆库提供，请在本轮回答中自然参考，不要复述本段】'];
+    for (var i = 0; i < mems.length; i++) lines.push((i + 1) + '. ' + mems[i]);
+    lines.push('【记忆结束，以下是我的问题】');
+    return lines.join('\n') + '\n\n';
+  }
+
+  var host = document.createElement('div');
+  host.id = '__dsondt_host';
+  host.style.cssText = 'position:fixed;right:18px;bottom:96px;z-index:2147483647;';
+  var shadow = host.attachShadow({ mode: 'open' });
+  shadow.innerHTML = [
+    '<style>',
+    ':host{all:initial}',
+    '*{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}',
+    '.wrap{display:flex;flex-direction:column;align-items:flex-end;gap:8px}',
+    '.btn{display:flex;align-items:center;gap:6px;height:38px;padding:0 14px;border:none;border-radius:19px;',
+    'background:#4d6bfe;color:#fff;font-size:13px;font-weight:500;cursor:pointer;',
+    'box-shadow:0 4px 16px rgba(77,107,254,.35);transition:transform .15s,box-shadow .15s}',
+    '.btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(77,107,254,.45)}',
+    '.btn:active{transform:translateY(0)}',
+    '.btn.sec{background:rgba(120,120,140,.18);color:#5a5a68;box-shadow:none;height:30px;font-size:12px;padding:0 11px}',
+    '.badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:rgba(255,255,255,.28);',
+    'font-size:11px;line-height:18px;text-align:center}',
+    '.toast{max-width:280px;padding:9px 13px;border-radius:9px;background:rgba(28,28,32,.92);color:#fff;',
+    'font-size:12px;line-height:1.5;opacity:0;transform:translateY(6px);transition:opacity .2s,transform .2s;pointer-events:none}',
+    '.toast.show{opacity:1;transform:translateY(0)}',
+    '</style>',
+    '<div class="wrap">',
+    '<div class="toast" id="t"></div>',
+    // 仅保留「🧠 注入记忆」按钮。「📚 打开记忆库」按钮因外部 webview 调 IPC
+    // 在 Tauri 2 capability 匹配有 known issue（#10298/#10317），App 顶栏本身就有 🧠 入口，
+    // 这里再放一份容易让人误以为坏的按钮，索性撤掉。
+    '<button class="btn" id="inj">🧠 注入记忆 <span class="badge" id="b">0</span></button>',
+    '</div>'
+  ].join('');
+
+  function mount() {
+    if (!document.body) return setTimeout(mount, 300);
+    if (!document.getElementById('__dsondt_host')) document.body.appendChild(host);
+    updateBadge();
+  }
+
+  var toastTimer = null;
+  function toast(msg) {
+    var t = shadow.getElementById('t');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2600);
+  }
+  function updateBadge() {
+    var b = shadow.getElementById('b');
+    if (b) b.textContent = String((MEMORIES && MEMORIES.length) || 0);
+  }
+
+  function doInject() {
+    var el = findInput();
+    var cur = readInput(el).trim();
+    if (cur.indexOf('【长期记忆') === 0) { toast('本条消息已经注入过记忆了'); return; }
+    search(cur).then(function (mems) {
+      if (!mems || !mems.length) {
+        toast('没有匹配到相关记忆。先在记忆库里加几条吧。');
+        return;
+      }
+      var block = buildBlock(mems);
+      if (el && writeInput(el, block + cur)) {
+        toast('已注入 ' + mems.length + ' 条记忆，检查无误后按回车发送');
+      } else {
+        var full = block + cur;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(full).then(function () {
+            toast('没找到输入框，内容已复制到剪贴板，请手动粘贴');
+          }).catch(function () { toast('注入失败，且无法访问剪贴板'); });
+        } else {
+          toast('没找到输入框，注入失败');
+        }
+      }
+    });
+  }
+
+  shadow.getElementById('inj').addEventListener('click', doInject);
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'm' || e.key === 'M')) {
+      e.preventDefault();
+      doInject();
+    }
+  });
+
+  var origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    try {
+      if (autoSink && init && init.body && typeof init.body === 'string') {
+        var url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.indexOf('/completion') !== -1 || url.indexOf('/chat/') !== -1) {
+          var body = JSON.parse(init.body);
+          var text = body.prompt || body.message || body.content || '';
+          if (typeof text === 'string') {
+            var idx = text.indexOf('【记忆结束，以下是我的问题】');
+            if (idx !== -1) text = text.slice(idx + '【记忆结束，以下是我的问题】'.length);
+            text = text.trim();
+            if (text.length >= 4 && text.length <= 2000) {
+              invoke('add_web_memory', { content: text }).catch(function () {});
+            }
+          }
+        }
+      }
+    } catch (e) {}
     return origFetch.apply(this, arguments);
-  }};
-}})();
-"#,
-    )
+  };
+
+  window.__DSONDT__ = {
+    setMemories: function (list) { MEMORIES = list || []; updateBadge(); },
+    setAutoSink: function (v) { autoSink = !!v; },
+    inject: doInject
+  };
+
+  mount();
+  setInterval(function () {
+    if (document.body && !document.getElementById('__dsondt_host')) document.body.appendChild(host);
+  }, 2000);
+})();
+"##;
+
+/// 烘焙记忆快照：把 `__DSONDT_MEMORIES__` 占位符替换为当前记忆 JSON。
+fn inject_script(memories_json: &str) -> String {
+    INJECT_JS.replace("__DSONDT_MEMORIES__", memories_json)
 }

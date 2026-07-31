@@ -63,6 +63,12 @@ body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  -webkit-app-region: drag;
+}
+
+.sidebar .new-chat-btn,
+.sidebar .conv-item {
+  -webkit-app-region: no-drag;
 }
 
 .sidebar-header {
@@ -207,7 +213,12 @@ body {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   z-index: 5;
-  /* drag 由 body 继承，这里不重复声明 */
+  -webkit-app-region: drag;
+}
+
+.app-topbar .mode-tab,
+.app-topbar .topbar-icon-btn {
+  -webkit-app-region: no-drag;
 }
 
 /* macOS: titleBarStyle=Overlay 时红黄绿按钮浮在我们顶栏左侧 ~12-72px，需要让位 */

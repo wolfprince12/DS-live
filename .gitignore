@@ -24,3 +24,8 @@ src-tauri/.tauri/
 
 # Legacy web-shell prototype (archived, not part of the app)
 legacy/
+
+# Release artifacts (uploaded to GitHub Releases, never committed to repo)
+dmg-staging/
+DSonDT.dmg
+*.dmg

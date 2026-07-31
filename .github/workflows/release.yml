@@ -7,11 +7,7 @@ on:
 
 jobs:
   release:
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -23,8 +19,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Add macOS Apple Silicon target
-        if: matrix.platform == 'macos-latest'
+      - name: Add Apple Silicon target
         run: rustup target add aarch64-apple-darwin
 
       - name: Install frontend dependencies
@@ -40,7 +35,7 @@ jobs:
         with:
           projectPath: src
           tagName: ${{ github.ref_name }}
-          releaseName: DSonMac ${{ github.ref_name }}
-          releaseBody: "DSonMac 本地 DeepSeek 桌面客户端（自带长期记忆）"
+          releaseName: DSonDT ${{ github.ref_name }}
+          releaseBody: "DSonDT 本地 DeepSeek 桌面客户端（自带长期记忆）"
           releaseDraft: true
           prerelease: false

@@ -1,7 +1,6 @@
 import { api } from "./api";
 import { store } from "./store";
 import type { Conversation, Memory } from "./types";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 let convListEl: HTMLElement;
 let messagesEl: HTMLElement;
@@ -26,22 +25,8 @@ const MODELS = [
 
 const DEEPSEEK_KEY_URL = "https://platform.deepseek.com/api_keys";
 
-// 窗口拖动：监听非交互区域的 mousedown，触发 OS 级拖拽。
-// 用 Tauri 的 startDragging 而非 CSS -webkit-app-region（后者在子 webview 上不可靠）。
-function setupWindowDrag() {
-  const NO_DRAG =
-    "button, a, input, textarea, select, .mode-tab, .topbar-icon-btn, " +
-    ".conv-item, .new-chat-btn, .sidebar-newchat, .modal, .modal-backdrop, " +
-    ".bubble, [contenteditable]";
-  document.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return; // 仅左键
-    const t = e.target as HTMLElement;
-    if (t.closest(NO_DRAG)) return; // 交互元素 / 消息气泡不触发拖拽
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {});
-  });
-}
+// 窗口拖动改由 CSS -webkit-app-region: drag 负责（见 style.css 的 .app-topbar 与 .sidebar），
+// 比 Tauri 的 getCurrentWindow().startDragging() 在 macOS 上更可靠。
 
 export async function initUI() {
   const app = document.getElementById("app")!;
@@ -51,7 +36,7 @@ export async function initUI() {
   if (typeof navigator !== "undefined" && /mac/i.test(navigator.platform || "")) {
     document.body.classList.add("platform-mac");
   }
-  setupWindowDrag();
+  // 拖动已由 CSS -webkit-app-region 负责（见 style.css）
   convListEl = document.getElementById("conv-list")!;
   messagesEl = document.getElementById("messages")!;
   inputEl = document.getElementById("input") as HTMLTextAreaElement;
@@ -145,6 +130,11 @@ export async function initUI() {
     document.body.classList.add("modal-open");
   } else if (store.mode === "api" && !(await api.hasApiKey())) {
     openSettings();
+  } else if (store.mode === "web") {
+    // 上次选了网页模式：重启后顶栏高亮正确，但 deepseek webview 不会被自动创建，
+    // 需要主动调 openWebMode() 激活；否则用户会看到「按钮高亮网页、但下面仍是本地 API 界面」
+    // 的状态错乱。
+    void api.openWebMode();
   }
   updateModeTabs();
   await store.refreshConversations();

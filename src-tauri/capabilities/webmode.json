@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "webmode",
-  "description": "网页模式窗口（官方 chat.deepseek.com）的最小 IPC 权限，仅用于记忆检索与沉淀",
-  "windows": ["deepseek"],
+  "description": "网页模式窗口（官方 chat.deepseek.com）的 IPC 权限：记忆检索、沉淀、打开记忆库",
+  "webviews": ["deepseek"],
   "remote": {
     "urls": ["https://chat.deepseek.com/*", "https://*.deepseek.com/*"]
   },
