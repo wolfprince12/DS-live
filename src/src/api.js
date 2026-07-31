@@ -13,6 +13,7 @@ export const api = {
     addMemory: (content) => invoke("add_manual_memory", { content }),
     updateMemory: (id, content) => invoke("update_memory", { id, content }),
     deleteMemory: (id) => invoke("delete_memory", { id }),
+    openUrl: (url) => invoke("open_url", { url }),
     chat: (conversationId, content, model, useMemory, thinking, onToken) => {
         const channel = new Channel();
         channel.onmessage = onToken;

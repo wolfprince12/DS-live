@@ -19,6 +19,7 @@ export const api = {
   updateMemory: (id: number, content: string) =>
     invoke<void>("update_memory", { id, content }),
   deleteMemory: (id: number) => invoke<void>("delete_memory", { id }),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
   chat: (
     conversationId: number,
     content: string,

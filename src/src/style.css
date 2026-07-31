@@ -149,6 +149,77 @@ body {
 .sidebar-footer {
   padding: 10px 12px;
   border-top: 1px solid var(--border);
+  position: relative;
+}
+
+/* ===== 设置弹出菜单 ===== */
+.settings-menu {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 52px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  z-index: 30;
+}
+
+.settings-menu[hidden] {
+  display: none;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--hover);
+}
+
+.menu-icon {
+  width: 18px;
+  display: inline-block;
+  text-align: center;
+}
+
+.menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 4px;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 8px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.menu-select {
+  margin-left: auto;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
 }
 
 .side-btn {

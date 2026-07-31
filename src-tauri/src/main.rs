@@ -86,6 +86,25 @@ fn delete_memory(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
     state.delete_memory(id)
 }
 
+/// 用系统默认浏览器打开外部链接。
+/// Tauri WebView 内 `window.open` 会被拦截，必须由 Rust 侧调用系统命令。
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("仅允许打开 http/https 链接".into());
+    }
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open").arg(&url).spawn();
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("cmd")
+        .args(["/C", "start", "", &url])
+        .spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open").arg(&url).spawn();
+
+    spawned.map(|_| ()).map_err(|e| format!("打开浏览器失败：{e}"))
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -113,7 +132,8 @@ fn main() {
             list_memories,
             add_manual_memory,
             update_memory,
-            delete_memory
+            delete_memory,
+            open_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

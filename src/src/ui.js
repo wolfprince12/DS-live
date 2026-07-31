@@ -15,6 +15,7 @@ let memoryListEl;
 let memorySearchEl;
 let memoryNewArea;
 let memoryNewInput;
+let settingsMenu;
 const MODELS = [
     { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
     { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
@@ -38,6 +39,7 @@ export async function initUI() {
     memorySearchEl = document.getElementById("memory-search");
     memoryNewArea = document.getElementById("memory-new");
     memoryNewInput = document.getElementById("memory-new-input");
+    settingsMenu = document.getElementById("settings-menu");
     MODELS.forEach((m) => {
         const o = document.createElement("option");
         o.value = m.id;
@@ -61,14 +63,30 @@ export async function initUI() {
     memoryToggle.addEventListener("change", () => store.setMemory(memoryToggle.checked));
     thinkToggle.addEventListener("change", () => store.setThinking(thinkToggle.checked));
     themeSelect.addEventListener("change", () => store.setTheme(themeSelect.value));
-    document.getElementById("open-settings").addEventListener("click", openSettings);
+    document.getElementById("open-settings").addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSettingsMenu();
+    });
+    settingsMenu.addEventListener("click", (e) => e.stopPropagation());
+    document.addEventListener("click", () => closeSettingsMenu());
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape")
+            closeSettingsMenu();
+    });
+    document.getElementById("menu-memory").addEventListener("click", () => {
+        closeSettingsMenu();
+        void openMemory();
+    });
+    document.getElementById("menu-apikey").addEventListener("click", () => {
+        closeSettingsMenu();
+        openSettings();
+    });
     document.getElementById("settings-cancel").addEventListener("click", () => (settingsModal.hidden = true));
     document.getElementById("settings-save").addEventListener("click", saveSettings);
-    document.getElementById("get-key-btn").addEventListener("click", () => window.open(DEEPSEEK_KEY_URL, "_blank"));
+    document.getElementById("get-key-btn").addEventListener("click", () => void openKeyPage());
     document.getElementById("export-btn").addEventListener("click", exportCurrent);
     document.getElementById("import-btn").addEventListener("click", () => document.getElementById("import-file").click());
     document.getElementById("import-file").addEventListener("change", importFile);
-    document.getElementById("open-memory").addEventListener("click", () => void openMemory());
     document.getElementById("memory-close").addEventListener("click", () => (memoryModal.hidden = true));
     document.getElementById("memory-add").addEventListener("click", () => {
         memoryNewArea.hidden = !memoryNewArea.hidden;
@@ -103,7 +121,20 @@ function template() {
       </div>
       <div class="conv-list" id="conv-list"></div>
       <div class="sidebar-footer">
-        <button id="open-memory" class="side-btn">🧠 记忆库</button>
+        <div class="settings-menu" id="settings-menu" hidden>
+          <button class="menu-item" id="menu-memory"><span class="menu-icon">🧠</span>记忆库</button>
+          <button class="menu-item" id="menu-apikey"><span class="menu-icon">🔑</span>API Key</button>
+          <div class="menu-sep"></div>
+          <div class="menu-row">
+            <span class="menu-icon">🎨</span>
+            <span>主题</span>
+            <select id="theme-select" class="menu-select">
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+              <option value="system">跟随系统</option>
+            </select>
+          </div>
+        </div>
         <button id="open-settings" class="side-btn">⚙ 设置</button>
       </div>
     </aside>
@@ -129,17 +160,10 @@ function template() {
   </div>
   <div class="modal-mask" id="settings-modal" hidden>
     <div class="modal">
-      <h3>设置</h3>
-      <label>DeepSeek API Key</label>
+      <h3>DeepSeek API Key</h3>
       <input type="password" id="api-key-input" placeholder="sk-..." />
       <div class="tip">Key 仅保存在系统钥匙串（macOS 钥匙串 / Windows 凭据管理器），不会以明文存储或上传。</div>
       <button id="get-key-btn" class="link-btn">去 DeepSeek 获取 API Key ↗</button>
-      <label>主题</label>
-      <select id="theme-select">
-        <option value="light">浅色</option>
-        <option value="dark">深色</option>
-        <option value="system">跟随系统</option>
-      </select>
       <div class="modal-actions">
         <button id="settings-cancel" class="ghost-btn">取消</button>
         <button id="settings-save" class="send-btn" style="width:auto;padding:0 18px;height:36px;">保存</button>
@@ -315,17 +339,30 @@ function autoGrow() {
     inputEl.style.height = "auto";
     inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + "px";
 }
+function toggleSettingsMenu() {
+    settingsMenu.hidden = !settingsMenu.hidden;
+}
+function closeSettingsMenu() {
+    settingsMenu.hidden = true;
+}
 function openSettings() {
     settingsModal.hidden = false;
     apiKeyInput.value = "";
-    themeSelect.value = store.theme;
+    apiKeyInput.focus();
+}
+async function openKeyPage() {
+    try {
+        await api.openUrl(DEEPSEEK_KEY_URL);
+    }
+    catch (e) {
+        alert(`无法打开浏览器：${e}\n请手动访问 ${DEEPSEEK_KEY_URL}`);
+    }
 }
 async function saveSettings() {
     const key = apiKeyInput.value.trim();
     if (key) {
         await api.setApiKey(key);
     }
-    store.setTheme(themeSelect.value);
     settingsModal.hidden = true;
 }
 async function exportCurrent() {
