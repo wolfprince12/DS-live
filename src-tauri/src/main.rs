@@ -237,12 +237,23 @@ fn main() {
 
             webmode::relayout(&window);
 
-            // 窗口尺寸/缩放变化时，重新摆位两个子视图，否则它们不会跟着变大变小。
+            // 窗口尺寸 / 位置 / 缩放变化时，重新摆位两个子视图，否则它们不会跟着动。
+            // Win/Linux 还需要同步：网页模式下的 web 顶级窗口要跟主窗口位置/尺寸变化。
             window.on_window_event(move |event| {
-                if let WindowEvent::Resized(_) = event {
-                    if let Some(win) = handle.get_window(MAIN_WINDOW) {
-                        webmode::relayout(&win);
+                match event {
+                    WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+                        if let Some(win) = handle.get_window(MAIN_WINDOW) {
+                            webmode::relayout(&win);
+                        }
                     }
+                    WindowEvent::CloseRequested { .. } => {
+                        // Win/Linux 模式下网页视图是独立顶级窗口，主窗口关闭时
+                        // 要主动把它也关掉，否则 app 不会退出（还有一个窗口活着）。
+                        if let Some(web) = handle.get_window(webmode::WEB_WEBVIEW) {
+                            let _ = web.close();
+                        }
+                    }
+                    _ => {}
                 }
             });
 

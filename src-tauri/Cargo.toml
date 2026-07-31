@@ -8,6 +8,11 @@ rust-version = "1.77"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# MinGW 交叉编译时 tauri-build 不会自动把 icon.ico 嵌进 .exe，
+# 这里手动调 winres 把它写进 .exe 资源段，否则任务栏/资源管理器
+# 看到的是 Tauri 兜底 logo（红色大象）。
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winres = "0.1"
 
 [dependencies]
 # unstable：启用单窗口多 webview（Window::add_child / Manager::get_webview）。
