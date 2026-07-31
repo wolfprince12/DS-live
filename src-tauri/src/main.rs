@@ -4,6 +4,7 @@ mod db;
 mod deepseek;
 mod memory;
 mod state;
+mod webmode;
 
 use state::AppState;
 use tauri::Manager;
@@ -105,6 +106,62 @@ fn open_url(url: String) -> Result<(), String> {
     spawned.map(|_| ()).map_err(|e| format!("打开浏览器失败：{e}"))
 }
 
+/// 把当前记忆库序列化成注入脚本能直接吃的 JSON。
+fn memories_json(state: &AppState) -> String {
+    match state.list_memories() {
+        Ok(list) => {
+            let brief: Vec<serde_json::Value> = list
+                .iter()
+                .map(|m| serde_json::json!({ "content": m.content, "origin": m.origin }))
+                .collect();
+            serde_json::to_string(&brief).unwrap_or_else(|_| "[]".into())
+        }
+        Err(_) => "[]".into(),
+    }
+}
+
+/// 打开网页模式：内嵌官方 chat.deepseek.com，并注入本地记忆增强层。
+#[tauri::command]
+fn open_web_mode(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
+    let json = memories_json(&state);
+    webmode::open(&app, &json)
+}
+
+#[tauri::command]
+fn web_mode_open(app: tauri::AppHandle) -> bool {
+    webmode::is_open(&app)
+}
+
+/// 主窗口改动记忆后调用，把最新快照推给网页窗口。
+#[tauri::command]
+fn sync_web_memories(app: tauri::AppHandle, state: tauri::State<AppState>) {
+    let json = memories_json(&state);
+    webmode::push_memories(&app, &json);
+}
+
+/// 供注入脚本调用：检索记忆（无 API Key 时自动走关键词路径）。
+#[tauri::command]
+async fn search_memories(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    top_k: Option<usize>,
+) -> Result<Vec<String>, String> {
+    state.search_memories(&query, top_k.unwrap_or(5)).await
+}
+
+/// 供注入脚本调用：把网页模式里发出的消息被动沉淀为记忆。
+#[tauri::command]
+async fn add_web_memory(state: tauri::State<'_, AppState>, content: String) -> Result<(), String> {
+    state.add_web_memory(&content).await
+}
+
+#[tauri::command]
+fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let win = app.get_webview_window("main").ok_or("找不到主窗口")?;
+    win.show().map_err(|e| e.to_string())?;
+    win.set_focus().map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -133,7 +190,13 @@ fn main() {
             add_manual_memory,
             update_memory,
             delete_memory,
-            open_url
+            open_url,
+            open_web_mode,
+            web_mode_open,
+            sync_web_memories,
+            search_memories,
+            add_web_memory,
+            focus_main_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "webmode",
+  "description": "网页模式窗口（官方 chat.deepseek.com）的最小 IPC 权限，仅用于记忆检索与沉淀",
+  "windows": ["deepseek"],
+  "remote": {
+    "urls": ["https://chat.deepseek.com/*", "https://*.deepseek.com/*"]
+  },
+  "permissions": ["core:default"]
+}

@@ -20,6 +20,9 @@ export const api = {
     invoke<void>("update_memory", { id, content }),
   deleteMemory: (id: number) => invoke<void>("delete_memory", { id }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
+  openWebMode: () => invoke<void>("open_web_mode"),
+  webModeOpen: () => invoke<boolean>("web_mode_open"),
+  syncWebMemories: () => invoke<void>("sync_web_memories"),
   chat: (
     conversationId: number,
     content: string,

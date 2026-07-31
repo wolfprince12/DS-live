@@ -70,11 +70,16 @@ impl AppState {
         };
 
         let memories = if use_memory {
-            if let Some(emb) = &user_emb {
-                let db = self.db.lock().unwrap();
-                db.search_similar(emb, 5, 0.25).unwrap_or_default()
+            let db = self.db.lock().unwrap();
+            let hits = match &user_emb {
+                Some(emb) => db.search_similar(emb, 5, 0.25).unwrap_or_default(),
+                None => vec![],
+            };
+            if hits.is_empty() {
+                // 向量不可用或没命中，退关键词检索
+                db.search_keyword(&content, 5).unwrap_or_default()
             } else {
-                vec![]
+                hits
             }
         } else {
             vec![]
@@ -109,42 +114,82 @@ impl AppState {
         Ok(reply)
     }
 
-    pub async fn add_manual_memory(&self, content: &str) -> Result<(), String> {
-        let api_key = self.get_api_key()?;
+    /// 尽力生成 embedding。没有 Key 或调用失败都不算错误——
+    /// 记忆照样存，只是检索时退化为关键词匹配（网页模式的零成本路径依赖这一点）。
+    async fn try_embed(&self, content: &str) -> Option<Vec<f32>> {
+        let api_key = self.get_api_key().ok()?;
         if api_key.is_empty() {
-            return Err("未配置 API Key，无法生成记忆向量".into());
+            return None;
         }
         let client = self.client.clone();
         match deepseek::embed(&client, &api_key, content).await {
-            Ok(emb) => {
-                self.db
-                    .lock()
-                    .unwrap()
-                    .add_memory(content, Some(&emb), "manual")
-                    .map_err(|e| e.to_string())?;
-                Ok(())
+            Ok(v) => Some(v),
+            Err(e) => {
+                eprintln!("embedding 失败，记忆降级为关键词检索: {e}");
+                None
             }
-            Err(e) => Err(format!("记忆向量生成失败：{e}")),
         }
+    }
+
+    pub async fn add_manual_memory(&self, content: &str) -> Result<(), String> {
+        let emb = self.try_embed(content).await;
+        self.db
+            .lock()
+            .unwrap()
+            .add_memory(content, emb.as_deref(), "manual")
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 网页模式沉淀下来的记忆，来源标记为 web，去重后写入。
+    pub async fn add_web_memory(&self, content: &str) -> Result<(), String> {
+        let content = content.trim();
+        if content.len() < 4 {
+            return Ok(());
+        }
+        {
+            let db = self.db.lock().unwrap();
+            if let Ok(existing) = db.list_memories() {
+                if existing.iter().any(|m| m.content == content) {
+                    return Ok(());
+                }
+            }
+        }
+        let emb = self.try_embed(content).await;
+        self.db
+            .lock()
+            .unwrap()
+            .add_memory(content, emb.as_deref(), "web")
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn list_memories(&self) -> Result<Vec<MemoryRow>, String> {
         self.db.lock().unwrap().list_memories().map_err(|e| e.to_string())
     }
 
-    pub async fn update_memory(&self, id: i64, content: &str) -> Result<(), String> {
-        let api_key = self.get_api_key()?;
-        if api_key.is_empty() {
-            return Err("未配置 API Key，无法重新生成记忆向量".into());
+    /// 记忆检索：有 Key 走向量，无 Key/失败自动退关键词。两条路都不会空手而归。
+    pub async fn search_memories(&self, query: &str, top_k: usize) -> Result<Vec<String>, String> {
+        if let Some(emb) = self.try_embed(query).await {
+            let db = self.db.lock().unwrap();
+            let hits = db.search_similar(&emb, top_k, 0.25).unwrap_or_default();
+            if !hits.is_empty() {
+                return Ok(hits);
+            }
         }
-        let client = self.client.clone();
-        let emb = deepseek::embed(&client, &api_key, content)
-            .await
-            .map_err(|e| format!("记忆向量生成失败：{e}"))?;
         self.db
             .lock()
             .unwrap()
-            .update_memory(id, content, Some(&emb))
+            .search_keyword(query, top_k)
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn update_memory(&self, id: i64, content: &str) -> Result<(), String> {
+        let emb = self.try_embed(content).await;
+        self.db
+            .lock()
+            .unwrap()
+            .update_memory(id, content, emb.as_deref())
             .map_err(|e| e.to_string())
     }
 

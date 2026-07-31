@@ -32,6 +32,19 @@ pub struct Db {
     conn: Connection,
 }
 
+/// 切字符二元组，忽略空白与大小写。中英文都适用。
+fn bigrams(s: &str) -> Vec<String> {
+    let chars: Vec<char> = s
+        .to_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    if chars.len() < 2 {
+        return chars.iter().map(|c| c.to_string()).collect();
+    }
+    chars.windows(2).map(|w| w.iter().collect()).collect()
+}
+
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -226,6 +239,38 @@ impl Db {
                         scored.push((sim, content));
                     }
                 }
+            }
+        }
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(top_k);
+        Ok(scored.into_iter().map(|(_, c)| c).collect())
+    }
+
+    /// 关键词检索（零成本兜底路径）：不依赖 embedding，也就不依赖 API Key。
+    /// 用字符二元组（bigram）重合度打分，对中文友好，且无需 FTS5 分词器。
+    pub fn search_keyword(&self, query: &str, top_k: usize) -> rusqlite::Result<Vec<String>> {
+        let q_grams = bigrams(query);
+        if q_grams.is_empty() {
+            // 查询过短：直接返回最近的记忆
+            let mut stmt = self
+                .conn
+                .prepare("SELECT content FROM memories ORDER BY updated_at DESC LIMIT ?1")?;
+            let rows = stmt.query_map(params![top_k as i64], |r| r.get::<_, String>(0))?;
+            return rows.collect();
+        }
+        let mut stmt = self.conn.prepare("SELECT content FROM memories")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut scored: Vec<(f32, String)> = Vec::new();
+        for row in rows {
+            let content = row?;
+            let c_grams = bigrams(&content);
+            if c_grams.is_empty() {
+                continue;
+            }
+            let hit = q_grams.iter().filter(|g| c_grams.contains(g)).count();
+            let sim = hit as f32 / q_grams.len() as f32;
+            if sim > 0.05 {
+                scored.push((sim, content));
             }
         }
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));

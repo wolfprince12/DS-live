@@ -9,6 +9,12 @@ class Store {
         this.useMemory = localStorage.getItem("ds_memory") !== "0";
         this.thinking = localStorage.getItem("ds_thinking") === "1";
         this.theme = localStorage.getItem("ds_theme") || "light";
+        /** "web" = 内嵌官网（免费，用自己账号）；"api" = 走 API Key（记忆注入更强） */
+        this.mode = localStorage.getItem("ds_mode") || "";
+    }
+    setMode(m) {
+        this.mode = m;
+        localStorage.setItem("ds_mode", m);
     }
     async refreshConversations() {
         this.conversations = await api.getConversations();

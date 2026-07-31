@@ -10,6 +10,13 @@ class Store {
   useMemory = localStorage.getItem("ds_memory") !== "0";
   thinking = localStorage.getItem("ds_thinking") === "1";
   theme = localStorage.getItem("ds_theme") || "light";
+  /** "web" = 内嵌官网（免费，用自己账号）；"api" = 走 API Key（记忆注入更强） */
+  mode = localStorage.getItem("ds_mode") || "";
+
+  setMode(m: string) {
+    this.mode = m;
+    localStorage.setItem("ds_mode", m);
+  }
 
   async refreshConversations() {
     this.conversations = await api.getConversations();

@@ -73,6 +73,10 @@ export async function initUI() {
         if (e.key === "Escape")
             closeSettingsMenu();
     });
+    document.getElementById("menu-web").addEventListener("click", () => {
+        closeSettingsMenu();
+        void enterWebMode();
+    });
     document.getElementById("menu-memory").addEventListener("click", () => {
         closeSettingsMenu();
         void openMemory();
@@ -99,9 +103,24 @@ export async function initUI() {
     });
     document.getElementById("memory-new-save").addEventListener("click", () => void addMemory());
     memorySearchEl.addEventListener("input", renderMemories);
-    const hasKey = await api.hasApiKey();
-    if (!hasKey)
+    document.getElementById("mode-web").addEventListener("click", () => {
+        document.getElementById("mode-modal").hidden = true;
+        store.setMode("web");
+        void enterWebMode();
+    });
+    document.getElementById("mode-api").addEventListener("click", async () => {
+        document.getElementById("mode-modal").hidden = true;
+        store.setMode("api");
+        if (!(await api.hasApiKey()))
+            openSettings();
+    });
+    if (!store.mode) {
+        // 首次启动：先让用户选模式，而不是上来就要 Key
+        document.getElementById("mode-modal").hidden = false;
+    }
+    else if (store.mode === "api" && !(await api.hasApiKey())) {
         openSettings();
+    }
     await store.refreshConversations();
     renderSidebar();
     if (store.conversations.length > 0) {
@@ -122,6 +141,7 @@ function template() {
       <div class="conv-list" id="conv-list"></div>
       <div class="sidebar-footer">
         <div class="settings-menu" id="settings-menu" hidden>
+          <button class="menu-item" id="menu-web"><span class="menu-icon">🌐</span>网页模式<span class="menu-tag">免费</span></button>
           <button class="menu-item" id="menu-memory"><span class="menu-icon">🧠</span>记忆库</button>
           <button class="menu-item" id="menu-apikey"><span class="menu-icon">🔑</span>API Key</button>
           <div class="menu-sep"></div>
@@ -189,6 +209,26 @@ function template() {
       </div>
     </div>
   </div>
+  <div class="modal-mask" id="mode-modal" hidden>
+    <div class="modal mode-modal">
+      <h3>选择使用方式</h3>
+      <div class="tip">两种模式共用同一个本地记忆库，随时可以在「设置」里切换。</div>
+      <div class="mode-card" id="mode-web">
+        <div class="mode-title">🌐 网页模式<span class="menu-tag">推荐 · 免费</span></div>
+        <div class="mode-desc">
+          内嵌 DeepSeek 官网，用你自己的账号登录。不花一分钱、历史对话与手机端同步、界面就是官方原版。
+          发消息前点一下「🧠 注入记忆」即可把本地记忆带进这轮对话。
+        </div>
+      </div>
+      <div class="mode-card" id="mode-api">
+        <div class="mode-title">🔑 API 模式</div>
+        <div class="mode-desc">
+          用你自己的 API Key 直连接口，按 token 计费。记忆以 system 身份注入，模型遵循度更高，
+          且完全不受官网改版影响。
+        </div>
+      </div>
+    </div>
+  </div>
   <input type="file" id="import-file" accept="application/json" hidden />
   `;
 }
@@ -239,8 +279,19 @@ function renderMessages() {
     if (store.messages.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty-state";
-        empty.innerHTML = `<div class="logo">DSonDT</div><div class="hint">本地 DeepSeek 客户端 · 自带长期记忆</div>`;
+        empty.innerHTML =
+            `<div class="logo">DSonDT</div>` +
+                `<div class="hint">本地 DeepSeek 客户端 · 自带长期记忆</div>` +
+                (store.mode === "web"
+                    ? `<div class="hint">你选的是网页模式，聊天在另一个窗口。` +
+                        `<a href="#" id="empty-web-link">重新打开 ↗</a>　本窗口可继续用 API 模式。</div>`
+                    : `<div class="hint">当前为 API 模式。想用自己的 DeepSeek 账号免费聊？` +
+                        `<a href="#" id="empty-web-link">切到网页模式 ↗</a></div>`);
         messagesEl.appendChild(empty);
+        document.getElementById("empty-web-link")?.addEventListener("click", (e) => {
+            e.preventDefault();
+            void enterWebMode();
+        });
         return;
     }
     for (const m of store.messages) {
@@ -350,6 +401,19 @@ function openSettings() {
     apiKeyInput.value = "";
     apiKeyInput.focus();
 }
+async function enterWebMode() {
+    store.setMode("web");
+    try {
+        await api.openWebMode();
+    }
+    catch (e) {
+        alert(`打开网页模式失败：${e}`);
+    }
+}
+/** 记忆有变动时，把最新快照推给已打开的网页模式窗口。失败无所谓，窗口没开而已。 */
+function syncWeb() {
+    api.syncWebMemories().catch(() => { });
+}
 async function openKeyPage() {
     try {
         await api.openUrl(DEEPSEEK_KEY_URL);
@@ -402,6 +466,7 @@ async function openMemory() {
 async function refreshMemories() {
     store.memories = await api.listMemories();
     renderMemories();
+    syncWeb();
 }
 function renderMemories() {
     memoryListEl.innerHTML = "";
