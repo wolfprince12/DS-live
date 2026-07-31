@@ -207,6 +207,13 @@ body {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   z-index: 5;
+  /* 让整条顶栏可以拖动窗口（macOS Overlay 标题栏模式下尤其需要） */
+  -webkit-app-region: drag;
+}
+
+/* macOS: titleBarStyle=Overlay 时红黄绿按钮浮在我们顶栏左侧 ~12-72px，需要让位 */
+body.platform-mac .app-topbar {
+  padding-left: 80px;
 }
 
 .app-brand {
@@ -214,6 +221,7 @@ body {
   align-items: center;
   gap: 9px;
   padding-right: 4px;
+  -webkit-app-region: no-drag;
 }
 
 .app-logo {
@@ -231,10 +239,12 @@ body {
 
 .app-topbar .mode-switch {
   margin: 0;
+  -webkit-app-region: no-drag;
 }
 
 .app-topbar .spacer {
   flex: 1;
+  -webkit-app-region: drag;
 }
 
 .topbar-icon-btn {
@@ -250,6 +260,7 @@ body {
   align-items: center;
   justify-content: center;
   transition: background 0.15s, border-color 0.15s;
+  -webkit-app-region: no-drag;
 }
 
 .topbar-icon-btn:hover {

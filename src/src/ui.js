@@ -23,6 +23,11 @@ const DEEPSEEK_KEY_URL = "https://platform.deepseek.com/api_keys";
 export async function initUI() {
     const app = document.getElementById("app");
     app.innerHTML = template();
+    // 平台标识：仅 macOS 需要在顶栏左侧留 80px 让位给浮动的红黄绿按钮
+    // （Rust 侧用 titleBarStyle=Overlay 隐藏了原生标题栏，按钮会浮在我们顶栏之上）。
+    if (typeof navigator !== "undefined" && /mac/i.test(navigator.platform || "")) {
+        document.body.classList.add("platform-mac");
+    }
     convListEl = document.getElementById("conv-list");
     messagesEl = document.getElementById("messages");
     inputEl = document.getElementById("input");

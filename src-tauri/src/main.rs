@@ -7,6 +7,8 @@ mod state;
 mod webmode;
 
 use state::AppState;
+#[cfg(target_os = "macos")]
+use tauri::TitleBarStyle;
 use tauri::{
     WebviewBuilder, WebviewUrl,
     window::WindowBuilder,
@@ -205,10 +207,19 @@ fn main() {
 
             // 先造一个没有 webview 的纯容器窗口，再把本地 UI 作为子视图塞进去。
             // 网页模式下再追加一个官方 deepseek 子视图，二者共处一窗。
-            let window = WindowBuilder::new(&*app, MAIN_WINDOW)
-                .title("DSonDT")
-                .build()
-                .map_err(|e| e.to_string())?;
+            //
+            // macOS：把原生标题栏藏掉（Overlay + hiddenTitle），让红黄绿按钮浮在我们自定义顶栏之上；
+            //        否则会出现「双品牌」+ 「双标题栏」+ 顶栏被原生栏挤压变形的视觉问题。
+            // Win/Linux：标题栏正常使用，本地 UI 还是从 y=0 开始铺。
+            #[allow(unused_mut)] // mut 仅 macOS 分支用到
+            let mut win_builder = WindowBuilder::new(&*app, MAIN_WINDOW).title("DSonDT");
+            #[cfg(target_os = "macos")]
+            {
+                win_builder = win_builder
+                    .title_bar_style(TitleBarStyle::Overlay)
+                    .hidden_title(true);
+            }
+            let window = win_builder.build().map_err(|e| e.to_string())?;
 
             let (w, h) = webmode::window_size(&window);
             window
