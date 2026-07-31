@@ -19,6 +19,15 @@ pub struct Message {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryRow {
+    pub id: i64,
+    pub content: String,
+    pub origin: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 pub struct Db {
     conn: Connection,
 }
@@ -49,7 +58,16 @@ impl Db {
                 created_at INTEGER NOT NULL,
                 FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
             );
-            CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);",
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                embedding TEXT,
+                origin TEXT NOT NULL DEFAULT 'auto',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
+            CREATE INDEX IF NOT EXISTS idx_memories_emb ON memories(embedding);",
         )?;
         Ok(Self { conn })
     }
@@ -146,10 +164,57 @@ impl Db {
         })
     }
 
+    /// 写入一条记忆（自动或手动来源），返回新记录 id
+    pub fn add_memory(
+        &self,
+        content: &str,
+        embedding: Option<&[f32]>,
+        origin: &str,
+    ) -> rusqlite::Result<i64> {
+        let t = now();
+        let emb_json = embedding.map(|v| serde_json::to_string(v).unwrap_or_default());
+        self.conn.execute(
+            "INSERT INTO memories (content, embedding, origin, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![content, emb_json, origin, t, t],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn list_memories(&self) -> rusqlite::Result<Vec<MemoryRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, content, origin, created_at, updated_at FROM memories ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(MemoryRow {
+                id: r.get(0)?,
+                content: r.get(1)?,
+                origin: r.get(2)?,
+                created_at: r.get(3)?,
+                updated_at: r.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn update_memory(&self, id: i64, content: &str, embedding: Option<&[f32]>) -> rusqlite::Result<()> {
+        let t = now();
+        let emb_json = embedding.map(|v| serde_json::to_string(v).unwrap_or_default());
+        self.conn.execute(
+            "UPDATE memories SET content = ?1, embedding = ?2, updated_at = ?3 WHERE id = ?4",
+            params![content, emb_json, t, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_memory(&self, id: i64) -> rusqlite::Result<()> {
+        self.conn.execute("DELETE FROM memories WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     pub fn search_similar(&self, query: &[f32], top_k: usize, min_sim: f32) -> rusqlite::Result<Vec<String>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT content, embedding FROM messages WHERE embedding IS NOT NULL")?;
+            .prepare("SELECT content, embedding FROM memories WHERE embedding IS NOT NULL")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)))?;
         let mut scored: Vec<(f32, String)> = Vec::new();
         for row in rows {

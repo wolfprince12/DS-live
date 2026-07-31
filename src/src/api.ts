@@ -1,5 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
-import type { Conversation, Message } from "./types";
+import type { Conversation, Message, Memory } from "./types";
 
 export const api = {
   hasApiKey: () => invoke<boolean>("has_api_key"),
@@ -14,6 +14,11 @@ export const api = {
   exportConversation: (id: number) =>
     invoke<string>("export_conversation", { conversationId: id }),
   importConversation: (json: string) => invoke<Conversation>("import_conversation", { json }),
+  listMemories: () => invoke<Memory[]>("list_memories"),
+  addMemory: (content: string) => invoke<void>("add_manual_memory", { content }),
+  updateMemory: (id: number, content: string) =>
+    invoke<void>("update_memory", { id, content }),
+  deleteMemory: (id: number) => invoke<void>("delete_memory", { id }),
   chat: (
     conversationId: number,
     content: string,

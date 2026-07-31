@@ -1,18 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DSonMac",
+  "productName": "DSonDT",
   "version": "0.1.0",
-  "identifier": "com.wolfprince.dsonmac",
+  "identifier": "com.wolfprince.dsondt",
   "build": {
     "frontendDist": "../src/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "cd src && npm run dev",
+    "beforeBuildCommand": "cd src && npm run build"
   },
   "app": {
     "windows": [
       {
-        "title": "DSonMac",
+        "title": "DSonDT",
         "width": 1024,
         "height": 768,
         "minWidth": 800,

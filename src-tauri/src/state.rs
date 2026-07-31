@@ -1,9 +1,9 @@
-use crate::db::Db;
+use crate::db::{Db, MemoryRow};
 use crate::deepseek;
 use std::sync::Mutex;
 use tauri::ipc::Channel;
 
-const KEYRING_SERVICE: &str = "com.wolfprince.dsonmac";
+const KEYRING_SERVICE: &str = "com.wolfprince.dsondt";
 const KEYRING_USER: &str = "deepseek-api-key";
 
 pub struct AppState {
@@ -86,6 +86,7 @@ impl AppState {
             let db = self.db.lock().unwrap();
             db.add_message(conversation_id, "user", &content, user_emb.as_deref())
                 .map_err(|e| e.to_string())?;
+            let _ = db.add_memory(&content, user_emb.as_deref(), "auto");
             let convs = db.list_conversations().map_err(|e| e.to_string())?;
             if let Some(conv) = convs.iter().find(|c| c.id == conversation_id) {
                 if conv.title == "新对话" {
@@ -106,6 +107,49 @@ impl AppState {
         }
 
         Ok(reply)
+    }
+
+    pub async fn add_manual_memory(&self, content: &str) -> Result<(), String> {
+        let api_key = self.get_api_key()?;
+        if api_key.is_empty() {
+            return Err("未配置 API Key，无法生成记忆向量".into());
+        }
+        let client = self.client.clone();
+        match deepseek::embed(&client, &api_key, content).await {
+            Ok(emb) => {
+                self.db
+                    .lock()
+                    .unwrap()
+                    .add_memory(content, Some(&emb), "manual")
+                    .map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            Err(e) => Err(format!("记忆向量生成失败：{e}")),
+        }
+    }
+
+    pub fn list_memories(&self) -> Result<Vec<MemoryRow>, String> {
+        self.db.lock().unwrap().list_memories().map_err(|e| e.to_string())
+    }
+
+    pub async fn update_memory(&self, id: i64, content: &str) -> Result<(), String> {
+        let api_key = self.get_api_key()?;
+        if api_key.is_empty() {
+            return Err("未配置 API Key，无法重新生成记忆向量".into());
+        }
+        let client = self.client.clone();
+        let emb = deepseek::embed(&client, &api_key, content)
+            .await
+            .map_err(|e| format!("记忆向量生成失败：{e}"))?;
+        self.db
+            .lock()
+            .unwrap()
+            .update_memory(id, content, Some(&emb))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn delete_memory(&self, id: i64) -> Result<(), String> {
+        self.db.lock().unwrap().delete_memory(id).map_err(|e| e.to_string())
     }
 }
 

@@ -66,6 +66,26 @@ fn import_conversation(state: tauri::State<AppState>, json: String) -> Result<db
     state.db.lock().unwrap().import_conversation(&json).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn list_memories(state: tauri::State<AppState>) -> Result<Vec<db::MemoryRow>, String> {
+    state.list_memories()
+}
+
+#[tauri::command]
+async fn add_manual_memory(state: tauri::State<'_, AppState>, content: String) -> Result<(), String> {
+    state.add_manual_memory(&content).await
+}
+
+#[tauri::command]
+async fn update_memory(state: tauri::State<'_, AppState>, id: i64, content: String) -> Result<(), String> {
+    state.update_memory(id, &content).await
+}
+
+#[tauri::command]
+fn delete_memory(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
+    state.delete_memory(id)
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -74,7 +94,7 @@ fn main() {
                 .app_data_dir()
                 .expect("无法获取应用数据目录");
             std::fs::create_dir_all(&dir).ok();
-            let db_path = dir.join("dsonmac.db");
+            let db_path = dir.join("dsondt.db");
             let app_state = AppState::new(&db_path).map_err(|e| e.to_string())?;
             app.manage(app_state);
             Ok(())
@@ -89,7 +109,11 @@ fn main() {
             get_messages,
             chat,
             export_conversation,
-            import_conversation
+            import_conversation,
+            list_memories,
+            add_manual_memory,
+            update_memory,
+            delete_memory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -678,7 +678,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dsonmac"
+name = "dsondt"
 version = "0.1.0"
 dependencies = [
  "anyhow",

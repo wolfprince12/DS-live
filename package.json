@@ -1,0 +1,10 @@
+{
+  "name": "dsondt",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "cd src && npm run dev",
+    "build": "cd src && npm run build",
+    "tauri": "node src/node_modules/.bin/tauri"
+  }
+}

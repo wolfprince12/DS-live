@@ -1,10 +1,11 @@
-import type { Conversation, Message } from "./types";
+import type { Conversation, Message, Memory } from "./types";
 import { api } from "./api";
 
 class Store {
   conversations: Conversation[] = [];
   currentId: number | null = null;
   messages: Message[] = [];
+  memories: Memory[] = [];
   model = localStorage.getItem("ds_model") || "deepseek-v4-flash";
   useMemory = localStorage.getItem("ds_memory") !== "0";
   thinking = localStorage.getItem("ds_thinking") === "1";

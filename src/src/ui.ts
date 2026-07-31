@@ -1,6 +1,6 @@
 import { api } from "./api";
 import { store } from "./store";
-import type { Conversation } from "./types";
+import type { Conversation, Memory } from "./types";
 
 let convListEl: HTMLElement;
 let messagesEl: HTMLElement;
@@ -12,11 +12,18 @@ let settingsModal: HTMLElement;
 let apiKeyInput: HTMLInputElement;
 let themeSelect: HTMLSelectElement;
 let sendBtn: HTMLButtonElement;
+let memoryModal: HTMLElement;
+let memoryListEl: HTMLElement;
+let memorySearchEl: HTMLInputElement;
+let memoryNewArea: HTMLElement;
+let memoryNewInput: HTMLTextAreaElement;
 
 const MODELS = [
   { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
   { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
 ];
+
+const DEEPSEEK_KEY_URL = "https://platform.deepseek.com/api_keys";
 
 export async function initUI() {
   const app = document.getElementById("app")!;
@@ -31,6 +38,11 @@ export async function initUI() {
   apiKeyInput = document.getElementById("api-key-input") as HTMLInputElement;
   themeSelect = document.getElementById("theme-select") as HTMLSelectElement;
   sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
+  memoryModal = document.getElementById("memory-modal")!;
+  memoryListEl = document.getElementById("memory-list")!;
+  memorySearchEl = document.getElementById("memory-search") as HTMLInputElement;
+  memoryNewArea = document.getElementById("memory-new")!;
+  memoryNewInput = document.getElementById("memory-new-input") as HTMLTextAreaElement;
 
   MODELS.forEach((m) => {
     const o = document.createElement("option");
@@ -59,9 +71,22 @@ export async function initUI() {
   document.getElementById("open-settings")!.addEventListener("click", openSettings);
   document.getElementById("settings-cancel")!.addEventListener("click", () => (settingsModal.hidden = true));
   document.getElementById("settings-save")!.addEventListener("click", saveSettings);
+  document.getElementById("get-key-btn")!.addEventListener("click", () => window.open(DEEPSEEK_KEY_URL, "_blank"));
   document.getElementById("export-btn")!.addEventListener("click", exportCurrent);
   document.getElementById("import-btn")!.addEventListener("click", () => document.getElementById("import-file")!.click());
   document.getElementById("import-file")!.addEventListener("change", importFile);
+  document.getElementById("open-memory")!.addEventListener("click", () => void openMemory());
+  document.getElementById("memory-close")!.addEventListener("click", () => (memoryModal.hidden = true));
+  document.getElementById("memory-add")!.addEventListener("click", () => {
+    memoryNewArea.hidden = !memoryNewArea.hidden;
+    if (!memoryNewArea.hidden) memoryNewInput.focus();
+  });
+  document.getElementById("memory-new-cancel")!.addEventListener("click", () => {
+    memoryNewInput.value = "";
+    memoryNewArea.hidden = true;
+  });
+  document.getElementById("memory-new-save")!.addEventListener("click", () => void addMemory());
+  memorySearchEl.addEventListener("input", renderMemories);
 
   const hasKey = await api.hasApiKey();
   if (!hasKey) openSettings();
@@ -79,11 +104,12 @@ function template(): string {
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="brand">DSonMac</div>
+        <div class="brand">DSonDT</div>
         <button id="new-chat" class="new-chat-btn">+ 新对话</button>
       </div>
       <div class="conv-list" id="conv-list"></div>
       <div class="sidebar-footer">
+        <button id="open-memory" class="side-btn">🧠 记忆库</button>
         <button id="open-settings" class="side-btn">⚙ 设置</button>
       </div>
     </aside>
@@ -97,7 +123,7 @@ function template(): string {
       <div class="messages" id="messages"></div>
       <div class="input-area">
         <div class="input-box">
-          <textarea id="input" rows="1" placeholder="给 DSonMac 发送消息…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <textarea id="input" rows="1" placeholder="给 DSonDT 发送消息…（Enter 发送，Shift+Enter 换行）"></textarea>
           <div class="input-row">
             <button id="export-btn" class="ghost-btn">导出</button>
             <button id="import-btn" class="ghost-btn">导入</button>
@@ -113,6 +139,7 @@ function template(): string {
       <label>DeepSeek API Key</label>
       <input type="password" id="api-key-input" placeholder="sk-..." />
       <div class="tip">Key 仅保存在系统钥匙串（macOS 钥匙串 / Windows 凭据管理器），不会以明文存储或上传。</div>
+      <button id="get-key-btn" class="link-btn">去 DeepSeek 获取 API Key ↗</button>
       <label>主题</label>
       <select id="theme-select">
         <option value="light">浅色</option>
@@ -125,8 +152,33 @@ function template(): string {
       </div>
     </div>
   </div>
+  <div class="modal-mask" id="memory-modal" hidden>
+    <div class="modal memory-modal">
+      <h3>长期记忆库</h3>
+      <div class="tip">自动记忆来自你的对话；手动记忆由你本人添加/编辑。所有记忆仅保存在本地数据库，不会上传。</div>
+      <input type="text" id="memory-search" class="memory-search" placeholder="搜索记忆…" />
+      <div class="memory-list" id="memory-list"></div>
+      <div class="memory-new" id="memory-new" hidden>
+        <textarea id="memory-new-input" rows="3" placeholder="输入一条要记住的内容…"></textarea>
+        <div class="modal-actions">
+          <button id="memory-new-cancel" class="ghost-btn">取消</button>
+          <button id="memory-new-save" class="send-btn" style="width:auto;padding:0 18px;height:36px;">添加</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="memory-close" class="ghost-btn">关闭</button>
+        <button id="memory-add" class="send-btn" style="width:auto;padding:0 18px;height:36px;">+ 新建记忆</button>
+      </div>
+    </div>
+  </div>
   <input type="file" id="import-file" accept="application/json" hidden />
   `;
+}
+
+function fmtDate(ts: number): string {
+  const d = new Date(ts * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function renderSidebar() {
@@ -173,7 +225,7 @@ function renderMessages() {
   if (store.messages.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.innerHTML = `<div class="logo">DSonMac</div><div class="hint">本地 DeepSeek 客户端 · 自带长期记忆</div>`;
+    empty.innerHTML = `<div class="logo">DSonDT</div><div class="hint">本地 DeepSeek 客户端 · 自带长期记忆</div>`;
     messagesEl.appendChild(empty);
     return;
   }
@@ -322,4 +374,113 @@ async function importFile(e: Event) {
     alert(`导入失败：${err}`);
   }
   (e.target as HTMLInputElement).value = "";
+}
+
+// ---------- 记忆库 ----------
+
+async function openMemory() {
+  memoryModal.hidden = false;
+  await refreshMemories();
+}
+
+async function refreshMemories() {
+  store.memories = await api.listMemories();
+  renderMemories();
+}
+
+function renderMemories() {
+  memoryListEl.innerHTML = "";
+  const q = memorySearchEl.value.trim().toLowerCase();
+  const items = store.memories.filter((m) => !q || m.content.toLowerCase().includes(q));
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "memory-empty";
+    empty.textContent = q ? "没有匹配的记忆" : "记忆库还是空的，点下方「新建记忆」添加一条吧";
+    memoryListEl.appendChild(empty);
+    return;
+  }
+  for (const m of items) {
+    const item = document.createElement("div");
+    item.className = "memory-item";
+    item.dataset.id = String(m.id);
+
+    const badge = document.createElement("span");
+    badge.className = "memory-badge " + (m.origin === "manual" ? "manual" : "auto");
+    badge.textContent = m.origin === "manual" ? "手动" : "自动";
+
+    const content = document.createElement("div");
+    content.className = "memory-content";
+    content.textContent = m.content;
+
+    const meta = document.createElement("div");
+    meta.className = "memory-meta";
+    meta.textContent = fmtDate(m.updated_at);
+
+    const actions = document.createElement("div");
+    actions.className = "memory-actions";
+    const edit = document.createElement("button");
+    edit.className = "ghost-btn";
+    edit.textContent = "编辑";
+    edit.addEventListener("click", () => startEditMemory(m));
+    const del = document.createElement("button");
+    del.className = "ghost-btn";
+    del.textContent = "删除";
+    del.addEventListener("click", () => void removeMemory(m.id));
+    actions.appendChild(edit);
+    actions.appendChild(del);
+
+    item.appendChild(badge);
+    item.appendChild(content);
+    item.appendChild(meta);
+    item.appendChild(actions);
+    memoryListEl.appendChild(item);
+  }
+}
+
+function startEditMemory(m: Memory) {
+  const el = memoryListEl.querySelector(`[data-id="${m.id}"]`) as HTMLElement | null;
+  if (!el) return;
+  el.innerHTML = "";
+  const ta = document.createElement("textarea");
+  ta.className = "memory-edit-input";
+  ta.rows = 3;
+  ta.value = m.content;
+  const actions = document.createElement("div");
+  actions.className = "memory-actions";
+  const save = document.createElement("button");
+  save.className = "send-btn";
+  save.style.cssText = "width:auto;padding:0 18px;height:36px;";
+  save.textContent = "保存";
+  save.addEventListener("click", () => void saveEditMemory(m.id, ta.value));
+  const cancel = document.createElement("button");
+  cancel.className = "ghost-btn";
+  cancel.textContent = "取消";
+  cancel.addEventListener("click", () => void refreshMemories());
+  actions.appendChild(cancel);
+  actions.appendChild(save);
+  el.appendChild(ta);
+  el.appendChild(actions);
+  ta.focus();
+}
+
+async function saveEditMemory(id: number, content: string) {
+  const c = content.trim();
+  if (!c) return;
+  await api.updateMemory(id, c);
+  await refreshMemories();
+}
+
+async function removeMemory(id: number) {
+  if (!confirm("确定删除这条记忆？")) return;
+  await api.deleteMemory(id);
+  await refreshMemories();
+}
+
+async function addMemory() {
+  const c = memoryNewInput.value.trim();
+  if (!c) return;
+  await api.addMemory(c);
+  memoryNewInput.value = "";
+  memoryNewArea.hidden = true;
+  await refreshMemories();
 }

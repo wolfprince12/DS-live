@@ -4,6 +4,7 @@ class Store {
         this.conversations = [];
         this.currentId = null;
         this.messages = [];
+        this.memories = [];
         this.model = localStorage.getItem("ds_model") || "deepseek-v4-flash";
         this.useMemory = localStorage.getItem("ds_memory") !== "0";
         this.thinking = localStorage.getItem("ds_thinking") === "1";

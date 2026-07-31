@@ -449,3 +449,134 @@ body {
 .tip a {
   color: var(--accent);
 }
+
+.link-btn {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.link-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ===== 记忆库弹窗 ===== */
+.memory-modal {
+  width: 560px;
+  max-width: 92vw;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-search {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  margin: 12px 0;
+}
+
+.memory-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 80px;
+}
+
+.memory-empty {
+  text-align: center;
+  color: var(--text-soft);
+  font-size: 13px;
+  padding: 24px 0;
+}
+
+.memory-item {
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 11px 12px;
+  background: var(--input-bg);
+}
+
+.memory-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+
+.memory-badge.auto {
+  background: #eef1ff;
+  color: var(--accent);
+}
+
+.memory-badge.manual {
+  background: #e8f7ee;
+  color: #1b9e54;
+}
+
+.memory-content {
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.memory-meta {
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-top: 6px;
+}
+
+.memory-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.memory-edit-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.memory-new {
+  margin-top: 12px;
+}
+
+.memory-new textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.5;
+}
