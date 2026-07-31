@@ -1,6 +1,7 @@
 import { api } from "./api";
 import { store } from "./store";
 import type { Conversation, Memory } from "./types";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 let convListEl: HTMLElement;
 let messagesEl: HTMLElement;
@@ -25,6 +26,23 @@ const MODELS = [
 
 const DEEPSEEK_KEY_URL = "https://platform.deepseek.com/api_keys";
 
+// 窗口拖动：监听非交互区域的 mousedown，触发 OS 级拖拽。
+// 用 Tauri 的 startDragging 而非 CSS -webkit-app-region（后者在子 webview 上不可靠）。
+function setupWindowDrag() {
+  const NO_DRAG =
+    "button, a, input, textarea, select, .mode-tab, .topbar-icon-btn, " +
+    ".conv-item, .new-chat-btn, .sidebar-newchat, .modal, .modal-backdrop, " +
+    ".bubble, [contenteditable]";
+  document.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return; // 仅左键
+    const t = e.target as HTMLElement;
+    if (t.closest(NO_DRAG)) return; // 交互元素 / 消息气泡不触发拖拽
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {});
+  });
+}
+
 export async function initUI() {
   const app = document.getElementById("app")!;
   app.innerHTML = template();
@@ -33,6 +51,7 @@ export async function initUI() {
   if (typeof navigator !== "undefined" && /mac/i.test(navigator.platform || "")) {
     document.body.classList.add("platform-mac");
   }
+  setupWindowDrag();
   convListEl = document.getElementById("conv-list")!;
   messagesEl = document.getElementById("messages")!;
   inputEl = document.getElementById("input") as HTMLTextAreaElement;

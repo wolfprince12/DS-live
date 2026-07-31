@@ -108,11 +108,7 @@ fn open_url(url: String) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     let spawned = std::process::Command::new("open").arg(&url).spawn();
-    #[cfg(target_os = "windows")]
-    let spawned = std::process::Command::new("cmd")
-        .args(["/C", "start", "", &url])
-        .spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(not(target_os = "macos"))]
     let spawned = std::process::Command::new("xdg-open").arg(&url).spawn();
 
     spawned.map(|_| ()).map_err(|e| format!("打开浏览器失败：{e}"))
@@ -210,7 +206,7 @@ fn main() {
             //
             // macOS：把原生标题栏藏掉（Overlay + hiddenTitle），让红黄绿按钮浮在我们自定义顶栏之上；
             //        否则会出现「双品牌」+ 「双标题栏」+ 顶栏被原生栏挤压变形的视觉问题。
-            // Win/Linux：标题栏正常使用，本地 UI 还是从 y=0 开始铺。
+            // （本项目目前仅面向 macOS 构建，Windows/Linux 分支已移除。）
             #[allow(unused_mut)] // mut 仅 macOS 分支用到
             let mut win_builder = WindowBuilder::new(&*app, MAIN_WINDOW)
                 .title("DSonDT")
@@ -237,23 +233,12 @@ fn main() {
 
             webmode::relayout(&window);
 
-            // 窗口尺寸 / 位置 / 缩放变化时，重新摆位两个子视图，否则它们不会跟着动。
-            // Win/Linux 还需要同步：网页模式下的 web 顶级窗口要跟主窗口位置/尺寸变化。
+            // 窗口缩放时，重新摆位本地 UI 与（网页模式下）deepseek 子视图，否则它们不会跟着变大变小。
             window.on_window_event(move |event| {
-                match event {
-                    WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
-                        if let Some(win) = handle.get_window(MAIN_WINDOW) {
-                            webmode::relayout(&win);
-                        }
+                if let WindowEvent::Resized(_) = event {
+                    if let Some(win) = handle.get_window(MAIN_WINDOW) {
+                        webmode::relayout(&win);
                     }
-                    WindowEvent::CloseRequested { .. } => {
-                        // Win/Linux 模式下网页视图是独立顶级窗口，主窗口关闭时
-                        // 要主动把它也关掉，否则 app 不会退出（还有一个窗口活着）。
-                        if let Some(web) = handle.get_window(webmode::WEB_WEBVIEW) {
-                            let _ = web.close();
-                        }
-                    }
-                    _ => {}
                 }
             });
 

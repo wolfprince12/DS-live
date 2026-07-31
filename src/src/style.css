@@ -46,27 +46,6 @@ body {
   color: var(--text);
   font-size: 15px;
   overflow: hidden;
-  /* macOS Overlay 标题栏模式：整窗默认是可拖区，
-     只有真的需要点击/输入的元素才覆盖成 no-drag。
-     这样用户在顶栏、侧栏空白、消息区空白都能拖窗口，
-     而按钮/输入框/会话项/弹窗依然能正常交互、文字依然可选。 */
-  -webkit-app-region: drag;
-}
-
-/* 真正需要交互的元素关掉 drag —— body 上 drag 在这里反向覆盖即可 */
-button,
-input,
-textarea,
-select,
-a,
-.modal,
-.modal-backdrop,
-.conv-item,
-.new-chat-btn,
-.sidebar-newchat,
-.topbar-icon-btn,
-.mode-tab {
-  -webkit-app-region: no-drag;
 }
 
 .app {
