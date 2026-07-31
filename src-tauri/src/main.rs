@@ -212,7 +212,12 @@ fn main() {
             //        否则会出现「双品牌」+ 「双标题栏」+ 顶栏被原生栏挤压变形的视觉问题。
             // Win/Linux：标题栏正常使用，本地 UI 还是从 y=0 开始铺。
             #[allow(unused_mut)] // mut 仅 macOS 分支用到
-            let mut win_builder = WindowBuilder::new(&*app, MAIN_WINDOW).title("DSonDT");
+            let mut win_builder = WindowBuilder::new(&*app, MAIN_WINDOW)
+                .title("DSonDT")
+                // 初始窗口尺寸：按用户期望的「正常可用」尺寸开，不要每次都得手动拉大。
+                .inner_size(1280.0, 820.0)
+                .min_inner_size(960.0, 640.0)
+                .resizable(true);
             #[cfg(target_os = "macos")]
             {
                 win_builder = win_builder

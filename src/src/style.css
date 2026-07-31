@@ -46,6 +46,27 @@ body {
   color: var(--text);
   font-size: 15px;
   overflow: hidden;
+  /* macOS Overlay 标题栏模式：整窗默认是可拖区，
+     只有真的需要点击/输入的元素才覆盖成 no-drag。
+     这样用户在顶栏、侧栏空白、消息区空白都能拖窗口，
+     而按钮/输入框/会话项/弹窗依然能正常交互、文字依然可选。 */
+  -webkit-app-region: drag;
+}
+
+/* 真正需要交互的元素关掉 drag —— body 上 drag 在这里反向覆盖即可 */
+button,
+input,
+textarea,
+select,
+a,
+.modal,
+.modal-backdrop,
+.conv-item,
+.new-chat-btn,
+.sidebar-newchat,
+.topbar-icon-btn,
+.mode-tab {
+  -webkit-app-region: no-drag;
 }
 
 .app {
@@ -207,8 +228,7 @@ body {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   z-index: 5;
-  /* 让整条顶栏可以拖动窗口（macOS Overlay 标题栏模式下尤其需要） */
-  -webkit-app-region: drag;
+  /* drag 由 body 继承，这里不重复声明 */
 }
 
 /* macOS: titleBarStyle=Overlay 时红黄绿按钮浮在我们顶栏左侧 ~12-72px，需要让位 */
@@ -221,7 +241,6 @@ body.platform-mac .app-topbar {
   align-items: center;
   gap: 9px;
   padding-right: 4px;
-  -webkit-app-region: no-drag;
 }
 
 .app-logo {
@@ -239,12 +258,10 @@ body.platform-mac .app-topbar {
 
 .app-topbar .mode-switch {
   margin: 0;
-  -webkit-app-region: no-drag;
 }
 
 .app-topbar .spacer {
   flex: 1;
-  -webkit-app-region: drag;
 }
 
 .topbar-icon-btn {
@@ -260,7 +277,6 @@ body.platform-mac .app-topbar {
   align-items: center;
   justify-content: center;
   transition: background 0.15s, border-color 0.15s;
-  -webkit-app-region: no-drag;
 }
 
 .topbar-icon-btn:hover {
