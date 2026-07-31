@@ -65,7 +65,7 @@ npm run tauri build          # 打包：.app + .dmg
 
 ## 关于作者
 
-**大狼（Winter Zheng）** —— 二十年影视传媒老兵，做过音乐节、纪录片、综艺导演，作品上过央视春晚、北影节音乐节。八年前独立运营「大狼导演工作室」，近年转型用 AI 把跨界底子焊成产品：爻知 AI、DealV、桂海晴岚音乐节、瘪老二作妖记 ……
+**Mr大狼** —— 二十年影视传媒老兵，做过音乐节、纪录片、综艺导演，作品上过央视春晚、北影节音乐节。八年前独立运营「大狼导演工作室」，近年转型用 AI 把跨界底子焊成产品：爻知云 微信服务号、DealV智能合同平台、鼠须管输入法图形控制台等
 
 DSonDT 最初是给自己做的工具——让 AI 真的「记得」我。后来觉得「想让 AI 记得自己」这件事大家都需要，就开源了出来。
 
@@ -120,7 +120,7 @@ DSonDT runs no server and collects no data — everything happens locally:
 
 ## About the Author
 
-**Mr. Dawolf (Winter Zheng)** — 20+ years in film, television and live production; runs "Big Wolf Director Studio" independently; now rebuilding cross-domain experience into AI products: 爻知 AI, DealV, and more.
+**Mr. Dawolf** — 20+ years in film, TV and live production; runs "Big Wolf Director Studio" independently; now rebuilding cross-domain experience into AI products: 爻知云 WeChat Official Account, DealV smart contract platform, Squirrel Panel (input-method GUI), and more.
 
 DSonDT started as a personal tool to make AI truly "remember" me. Released open-source because everyone needs an AI that remembers them.
 
