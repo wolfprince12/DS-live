@@ -15,7 +15,6 @@ let memoryListEl;
 let memorySearchEl;
 let memoryNewArea;
 let memoryNewInput;
-let settingsMenu;
 const MODELS = [
     { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
     { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
@@ -39,7 +38,6 @@ export async function initUI() {
     memorySearchEl = document.getElementById("memory-search");
     memoryNewArea = document.getElementById("memory-new");
     memoryNewInput = document.getElementById("memory-new-input");
-    settingsMenu = document.getElementById("settings-menu");
     MODELS.forEach((m) => {
         const o = document.createElement("option");
         o.value = m.id;
@@ -63,35 +61,29 @@ export async function initUI() {
     memoryToggle.addEventListener("change", () => store.setMemory(memoryToggle.checked));
     thinkToggle.addEventListener("change", () => store.setThinking(thinkToggle.checked));
     themeSelect.addEventListener("change", () => store.setTheme(themeSelect.value));
-    document.getElementById("open-settings").addEventListener("click", (e) => {
-        e.stopPropagation();
-        toggleSettingsMenu();
-    });
-    settingsMenu.addEventListener("click", (e) => e.stopPropagation());
-    document.addEventListener("click", () => closeSettingsMenu());
+    document.getElementById("tab-web").addEventListener("click", () => void switchMode("web"));
+    document.getElementById("tab-api").addEventListener("click", () => void switchMode("api"));
+    // 顶栏按钮：记忆库 / 设置
+    document.getElementById("memory-btn").addEventListener("click", () => void openMemory());
+    document.getElementById("settings-btn").addEventListener("click", () => openSettings());
+    // 网页模式里注入的「📚 编辑记忆库」按钮会经 Rust 派发这个事件，由本地 UI 打开弹窗
+    window.addEventListener("dsondt:open-memory", () => void openMemory());
+    // Esc 关闭当前打开的模态框
     document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape")
-            closeSettingsMenu();
+        if (e.key === "Escape") {
+            if (!settingsModal.hidden)
+                closeSettings();
+            else if (!memoryModal.hidden)
+                closeMemory();
+        }
     });
-    document.getElementById("menu-web").addEventListener("click", () => {
-        closeSettingsMenu();
-        void enterWebMode();
-    });
-    document.getElementById("menu-memory").addEventListener("click", () => {
-        closeSettingsMenu();
-        void openMemory();
-    });
-    document.getElementById("menu-apikey").addEventListener("click", () => {
-        closeSettingsMenu();
-        openSettings();
-    });
-    document.getElementById("settings-cancel").addEventListener("click", () => (settingsModal.hidden = true));
+    document.getElementById("settings-cancel").addEventListener("click", () => closeSettings());
     document.getElementById("settings-save").addEventListener("click", saveSettings);
     document.getElementById("get-key-btn").addEventListener("click", () => void openKeyPage());
     document.getElementById("export-btn").addEventListener("click", exportCurrent);
     document.getElementById("import-btn").addEventListener("click", () => document.getElementById("import-file").click());
     document.getElementById("import-file").addEventListener("change", importFile);
-    document.getElementById("memory-close").addEventListener("click", () => (memoryModal.hidden = true));
+    document.getElementById("memory-close").addEventListener("click", () => closeMemory());
     document.getElementById("memory-add").addEventListener("click", () => {
         memoryNewArea.hidden = !memoryNewArea.hidden;
         if (!memoryNewArea.hidden)
@@ -105,22 +97,28 @@ export async function initUI() {
     memorySearchEl.addEventListener("input", renderMemories);
     document.getElementById("mode-web").addEventListener("click", () => {
         document.getElementById("mode-modal").hidden = true;
+        document.body.classList.remove("modal-open");
         store.setMode("web");
+        updateModeTabs();
         void enterWebMode();
     });
     document.getElementById("mode-api").addEventListener("click", async () => {
         document.getElementById("mode-modal").hidden = true;
+        document.body.classList.remove("modal-open");
         store.setMode("api");
+        updateModeTabs();
         if (!(await api.hasApiKey()))
             openSettings();
     });
     if (!store.mode) {
         // 首次启动：先让用户选模式，而不是上来就要 Key
         document.getElementById("mode-modal").hidden = false;
+        document.body.classList.add("modal-open");
     }
     else if (store.mode === "api" && !(await api.hasApiKey())) {
         openSettings();
     }
+    updateModeTabs();
     await store.refreshConversations();
     renderSidebar();
     if (store.conversations.length > 0) {
@@ -133,56 +131,60 @@ export async function initUI() {
 function template() {
     return `
   <div class="app">
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="brand">DSonDT</div>
-        <button id="new-chat" class="new-chat-btn">+ 新对话</button>
+    <header class="app-topbar">
+      <div class="app-brand">
+        <img src="/logo.png" class="app-logo" alt="DSonDT">
+        <span class="app-name">DSonDT</span>
       </div>
-      <div class="conv-list" id="conv-list"></div>
-      <div class="sidebar-footer">
-        <div class="settings-menu" id="settings-menu" hidden>
-          <button class="menu-item" id="menu-web"><span class="menu-icon">🌐</span>网页模式<span class="menu-tag">免费</span></button>
-          <button class="menu-item" id="menu-memory"><span class="menu-icon">🧠</span>记忆库</button>
-          <button class="menu-item" id="menu-apikey"><span class="menu-icon">🔑</span>API Key</button>
-          <div class="menu-sep"></div>
-          <div class="menu-row">
-            <span class="menu-icon">🎨</span>
-            <span>主题</span>
-            <select id="theme-select" class="menu-select">
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
-              <option value="system">跟随系统</option>
-            </select>
+      <div class="mode-switch">
+        <button class="mode-tab" id="tab-web" type="button">🌐 网页</button>
+        <button class="mode-tab" id="tab-api" type="button">🔑 API</button>
+      </div>
+      <span class="spacer"></span>
+      <button id="memory-btn" class="topbar-icon-btn" title="记忆库">🧠</button>
+      <button id="settings-btn" class="topbar-icon-btn" title="设置">⚙</button>
+    </header>
+    <div class="app-body">
+      <aside class="sidebar">
+        <div class="sidebar-newchat">
+          <button id="new-chat" class="new-chat-btn">+ 新对话</button>
+        </div>
+        <div class="conv-list" id="conv-list"></div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <select id="model-select" class="model-select"></select>
+          <label class="toggle-label"><input type="checkbox" id="memory-toggle" /> 长期记忆</label>
+          <label class="toggle-label"><input type="checkbox" id="think-toggle" /> 深度思考</label>
+          <span class="spacer"></span>
+        </header>
+        <div class="messages" id="messages"></div>
+        <div class="input-area">
+          <div class="input-box">
+            <textarea id="input" rows="1" placeholder="给 DSonDT 发送消息…（Enter 发送，Shift+Enter 换行）"></textarea>
+            <div class="input-row">
+              <button id="export-btn" class="ghost-btn">导出</button>
+              <button id="import-btn" class="ghost-btn">导入</button>
+              <button id="send-btn" class="send-btn">↑</button>
+            </div>
           </div>
         </div>
-        <button id="open-settings" class="side-btn">⚙ 设置</button>
-      </div>
-    </aside>
-    <main class="main">
-      <header class="topbar">
-        <select id="model-select" class="model-select"></select>
-        <label class="toggle-label"><input type="checkbox" id="memory-toggle" /> 长期记忆</label>
-        <label class="toggle-label"><input type="checkbox" id="think-toggle" /> 深度思考</label>
-        <span class="spacer"></span>
-      </header>
-      <div class="messages" id="messages"></div>
-      <div class="input-area">
-        <div class="input-box">
-          <textarea id="input" rows="1" placeholder="给 DSonDT 发送消息…（Enter 发送，Shift+Enter 换行）"></textarea>
-          <div class="input-row">
-            <button id="export-btn" class="ghost-btn">导出</button>
-            <button id="import-btn" class="ghost-btn">导入</button>
-            <button id="send-btn" class="send-btn">↑</button>
-          </div>
-        </div>
-      </div>
-    </main>
+      </main>
+    </div>
   </div>
   <div class="modal-mask" id="settings-modal" hidden>
     <div class="modal">
-      <h3>DeepSeek API Key</h3>
+      <h3>设置</h3>
+      <label>主题</label>
+      <select id="theme-select">
+        <option value="light">浅色</option>
+        <option value="dark">深色</option>
+        <option value="system">跟随系统</option>
+      </select>
+      <label>DeepSeek API Key</label>
       <input type="password" id="api-key-input" placeholder="sk-..." />
-      <div class="tip">Key 仅保存在系统钥匙串（macOS 钥匙串 / Windows 凭据管理器），不会以明文存储或上传。</div>
+      <div class="tip">Key 仅保存在本地（优先系统钥匙串，不可用时回退到本地加密文件），不会以明文上传。</div>
+      <div class="key-status" id="key-status"></div>
       <button id="get-key-btn" class="link-btn">去 DeepSeek 获取 API Key ↗</button>
       <div class="modal-actions">
         <button id="settings-cancel" class="ghost-btn">取消</button>
@@ -212,7 +214,7 @@ function template() {
   <div class="modal-mask" id="mode-modal" hidden>
     <div class="modal mode-modal">
       <h3>选择使用方式</h3>
-      <div class="tip">两种模式共用同一个本地记忆库，随时可以在「设置」里切换。</div>
+      <div class="tip">两种模式共用同一个本地记忆库，随时可以在顶栏切换。</div>
       <div class="mode-card" id="mode-web">
         <div class="mode-title">🌐 网页模式<span class="menu-tag">推荐 · 免费</span></div>
         <div class="mode-desc">
@@ -283,8 +285,8 @@ function renderMessages() {
             `<div class="logo">DSonDT</div>` +
                 `<div class="hint">本地 DeepSeek 客户端 · 自带长期记忆</div>` +
                 (store.mode === "web"
-                    ? `<div class="hint">你选的是网页模式，聊天在另一个窗口。` +
-                        `<a href="#" id="empty-web-link">重新打开 ↗</a>　本窗口可继续用 API 模式。</div>`
+                    ? `<div class="hint">你选的是网页模式，DeepSeek 官网已嵌在右侧。` +
+                        `聊天前点右侧的「🧠 注入记忆」即可把本地记忆带进对话。</div>`
                     : `<div class="hint">当前为 API 模式。想用自己的 DeepSeek 账号免费聊？` +
                         `<a href="#" id="empty-web-link">切到网页模式 ↗</a></div>`);
         messagesEl.appendChild(empty);
@@ -390,25 +392,79 @@ function autoGrow() {
     inputEl.style.height = "auto";
     inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + "px";
 }
-function toggleSettingsMenu() {
-    settingsMenu.hidden = !settingsMenu.hidden;
-}
-function closeSettingsMenu() {
-    settingsMenu.hidden = true;
+/** 关闭设置弹窗；网页模式下恢复远程视图的显示。 */
+function closeSettings() {
+    settingsModal.hidden = true;
+    document.body.classList.remove("modal-open");
+    if (store.mode === "web") {
+        void api.setSuppressed(false);
+    }
 }
 function openSettings() {
+    // 网页模式下远程视图压在本地之上，弹窗前先把它藏起来，否则会被盖住。
+    if (store.mode === "web") {
+        void api.setSuppressed(true);
+    }
+    document.body.classList.add("modal-open");
     settingsModal.hidden = false;
     apiKeyInput.value = "";
     apiKeyInput.focus();
+    void showKeyStatus();
+}
+async function showKeyStatus() {
+    const el = document.getElementById("key-status");
+    try {
+        const s = await api.apiKeyStatus();
+        if (s.saved) {
+            el.textContent = `当前已保存：${s.masked}　（${s.in_keyring ? "已存入系统钥匙串" : "本地加密文件存储"}）`;
+        }
+        else {
+            el.textContent = "尚未保存 API Key。";
+        }
+    }
+    catch {
+        el.textContent = "";
+    }
 }
 async function enterWebMode() {
     store.setMode("web");
+    updateModeTabs();
     try {
         await api.openWebMode();
     }
     catch (e) {
         alert(`打开网页模式失败：${e}`);
     }
+}
+/** 侧边栏的网页/API 切换标签：网页模式激活右侧官方视图，API 模式隐藏它并回到本地聊天。 */
+async function switchMode(mode) {
+    if (mode === "web") {
+        store.setMode("web");
+        updateModeTabs();
+        try {
+            await api.openWebMode();
+        }
+        catch (e) {
+            alert(`打开网页模式失败：${e}`);
+        }
+    }
+    else {
+        store.setMode("api");
+        updateModeTabs();
+        await api.deactivateWebMode();
+        if (!(await api.hasApiKey()))
+            openSettings();
+    }
+}
+/** 根据 store.mode 高亮侧边栏的网页/API 标签。 */
+function updateModeTabs() {
+    const web = document.getElementById("tab-web");
+    const api = document.getElementById("tab-api");
+    if (!web || !api)
+        return;
+    const m = store.mode;
+    web.classList.toggle("active", m === "web");
+    api.classList.toggle("active", m === "api");
 }
 /** 记忆有变动时，把最新快照推给已打开的网页模式窗口。失败无所谓，窗口没开而已。 */
 function syncWeb() {
@@ -424,10 +480,10 @@ async function openKeyPage() {
 }
 async function saveSettings() {
     const key = apiKeyInput.value.trim();
-    if (key) {
-        await api.setApiKey(key);
-    }
-    settingsModal.hidden = true;
+    // 空值表示清空 Key；非空则保存。Key 会持久化（钥匙串 / 本地加密文件），重启后仍记得。
+    await api.setApiKey(key);
+    apiKeyInput.value = "";
+    closeSettings();
 }
 async function exportCurrent() {
     if (!store.currentId)
@@ -460,8 +516,21 @@ async function importFile(e) {
 }
 // ---------- 记忆库 ----------
 async function openMemory() {
+    // 网页模式下远程视图压在本地之上，弹窗前先把它藏起来，否则会被盖住。
+    if (store.mode === "web") {
+        await api.setSuppressed(true);
+    }
+    document.body.classList.add("modal-open");
     memoryModal.hidden = false;
     await refreshMemories();
+}
+/** 关闭记忆库弹窗；网页模式下恢复远程视图的显示。 */
+function closeMemory() {
+    memoryModal.hidden = true;
+    document.body.classList.remove("modal-open");
+    if (store.mode === "web") {
+        void api.setSuppressed(false);
+    }
 }
 async function refreshMemories() {
     store.memories = await api.listMemories();

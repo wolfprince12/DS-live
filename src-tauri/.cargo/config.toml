@@ -1,0 +1,5 @@
+# Windows 交叉编译（从 macOS 编 x86_64-pc-windows-gnu）
+# 目标机是 ARM Win11，可模拟运行 x86_64 程序。
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"

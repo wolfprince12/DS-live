@@ -1,14 +1,28 @@
-//! 网页模式：内嵌官方 chat.deepseek.com，用注入脚本把本地记忆库前置到输入框。
+//! 网页模式：在**同一个窗口内**叠两层 webview——本地 UI 全窗口铺底（顶栏嵌在最上面 48px），
+//! 官方 chat.deepseek.com 作为子视图从顶栏下方开始铺满整宽，盖住本地的会话列表与聊天区。
 //!
 //! 设计要点：
+//! - 单窗口双 webview（Tauri `unstable` 的 `Window::add_child`）。顶栏始终归本地 UI 所有，
+//!   所以「模式切换 / 记忆库 / 设置」在网页模式下依然随手可点。
+//! - 远程 webview 是原生视图，**层级永远压在本地 UI 之上**。因此本地弹出模态框时
+//!   必须先把它 `hide()`，关闭后再 `show()`，否则弹窗会被整块盖住。
 //! - 只做「前置注入」，**不代替用户按发送键**。性质等同输入法/剪贴板辅助，不越界。
 //! - 注入脚本被动 hook fetch 读取页面自己发出的请求，不伪造请求、不窃取 token。
-//! - 记忆快照在建窗时烘焙进脚本；主窗口增删改记忆后由 Rust 主动 eval 推送更新。
 //! - IPC 不可用时自动降级为脚本内本地打分，功能不中断。
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{
+    WebviewBuilder, AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, Window,
+};
 
-pub const WEB_WINDOW_LABEL: &str = "deepseek";
+pub const MAIN_WINDOW: &str = "main";
+pub const UI_WEBVIEW: &str = "ui";
+pub const WEB_WEBVIEW: &str = "deepseek";
+
+/// 必须与 style.css 里 `.app-topbar { height: 48px }` 保持一致。
+/// 远程 deepseek 子视图从顶栏下方开始铺满，网页模式下盖住本地的会话列表/聊天区。
+pub const TOP_BAR_H: f64 = 48.0;
+
 const DEEPSEEK_URL: &str = "https://chat.deepseek.com/";
 
 /// 伪装成真实浏览器 UA，避免 WebView 默认 UA 触发风控挑战。
@@ -19,41 +33,127 @@ const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 #[cfg(all(unix, not(target_os = "macos")))]
 const UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-/// 打开（或聚焦）网页模式窗口。`memories_json` 是 `[{content, origin}]` 的 JSON 数组。
-pub fn open(app: &AppHandle, memories_json: &str) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window(WEB_WINDOW_LABEL) {
-        let _ = win.show();
-        let _ = win.set_focus();
-        push_memories(app, memories_json);
-        return Ok(());
+#[derive(Default)]
+pub struct WebState {
+    /// 用户当前是否选择了网页模式
+    active: AtomicBool,
+    /// 是否因为本地弹窗而临时藏起（弹窗关闭后恢复）
+    suppressed: AtomicBool,
+}
+
+impl WebState {
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
     }
-    let script = INJECT_JS.replace("__DSONDT_MEMORIES__", memories_json);
-    let url = DEEPSEEK_URL
-        .parse()
-        .map_err(|e| format!("URL 解析失败：{e}"))?;
-    WebviewWindowBuilder::new(app, WEB_WINDOW_LABEL, WebviewUrl::External(url))
-        .title("DeepSeek · 网页模式（DSonDT 记忆增强）")
-        .inner_size(1180.0, 840.0)
-        .min_inner_size(900.0, 600.0)
-        .user_agent(UA)
-        .initialization_script(&script)
-        .build()
-        .map_err(|e| format!("创建网页模式窗口失败：{e}"))?;
+}
+
+/// 取窗口的逻辑尺寸（CSS px），拿不到就退回一个合理默认值。
+pub fn window_size(window: &Window) -> (f64, f64) {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    match window.inner_size() {
+        Ok(p) => {
+            let l: LogicalSize<f64> = p.to_logical(scale);
+            (l.width.max(1.0), l.height.max(1.0))
+        }
+        Err(_) => (1200.0, 820.0),
+    }
+}
+
+/// 重排两个子 webview。窗口尺寸变化时必须调用，否则子视图不会跟着走。
+pub fn relayout(window: &Window) {
+    let (w, h) = window_size(window);
+    if let Some(ui) = window.get_webview(UI_WEBVIEW) {
+        let _ = ui.set_position(LogicalPosition::new(0.0, 0.0));
+        let _ = ui.set_size(LogicalSize::new(w, h));
+    }
+    if let Some(web) = window.get_webview(WEB_WEBVIEW) {
+        let _ = web.set_position(LogicalPosition::new(0.0, TOP_BAR_H));
+        let _ = web.set_size(LogicalSize::new(w, (h - TOP_BAR_H).max(1.0)));
+    }
+}
+
+fn main_window(app: &AppHandle) -> Option<Window> {
+    app.get_window(MAIN_WINDOW)
+}
+
+/// 按 `active && !suppressed` 决定远程 webview 的显隐。
+fn apply_visibility(app: &AppHandle) {
+    let Some(state) = app.try_state::<WebState>() else {
+        return;
+    };
+    let Some(web) = app.get_webview(WEB_WEBVIEW) else {
+        return;
+    };
+    let visible = state.active.load(Ordering::Relaxed) && !state.suppressed.load(Ordering::Relaxed);
+    if visible {
+        if let Some(win) = main_window(app) {
+            relayout(&win);
+        }
+        let _ = web.show();
+    } else {
+        let _ = web.hide();
+    }
+}
+
+/// 进入网页模式：首次调用时创建远程子 webview，之后只是显示它。
+pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
+    let window = main_window(app).ok_or("找不到主窗口")?;
+
+    if app.get_webview(WEB_WEBVIEW).is_none() {
+        let script = INJECT_JS.replace("__DSONDT_MEMORIES__", memories_json);
+        let url = DEEPSEEK_URL
+            .parse()
+            .map_err(|e| format!("URL 解析失败：{e}"))?;
+        let (w, h) = window_size(&window);
+        window
+            .add_child(
+                WebviewBuilder::new(WEB_WEBVIEW, WebviewUrl::External(url))
+                    .user_agent(UA)
+                    .initialization_script(&script),
+                LogicalPosition::new(0.0, TOP_BAR_H),
+                LogicalSize::new(w, (h - TOP_BAR_H).max(1.0)),
+            )
+            .map_err(|e| format!("创建网页模式视图失败：{e}"))?;
+    } else {
+        push_memories(app, memories_json);
+    }
+
+    if let Some(state) = app.try_state::<WebState>() {
+        state.active.store(true, Ordering::Relaxed);
+        state.suppressed.store(false, Ordering::Relaxed);
+    }
+    apply_visibility(app);
     Ok(())
 }
 
-/// 主窗口改动记忆后，把最新快照推给网页窗口（若已打开）。
+/// 切回 API 模式：远程 webview 只是隐藏，页面与登录态都保留。
+pub fn deactivate(app: &AppHandle) {
+    if let Some(state) = app.try_state::<WebState>() {
+        state.active.store(false, Ordering::Relaxed);
+    }
+    apply_visibility(app);
+}
+
+/// 本地要弹模态框了，先把压在上面的远程 webview 藏起来。
+pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
+    if let Some(state) = app.try_state::<WebState>() {
+        state.suppressed.store(suppressed, Ordering::Relaxed);
+    }
+    apply_visibility(app);
+}
+
+pub fn is_active(app: &AppHandle) -> bool {
+    app.try_state::<WebState>().map(|s| s.is_active()).unwrap_or(false)
+}
+
+/// 主窗口改动记忆后，把最新快照推给注入脚本。
 pub fn push_memories(app: &AppHandle, memories_json: &str) {
-    if let Some(win) = app.get_webview_window(WEB_WINDOW_LABEL) {
+    if let Some(web) = app.get_webview(WEB_WEBVIEW) {
         let js = format!(
             "try{{window.__DSONDT__&&window.__DSONDT__.setMemories({memories_json})}}catch(e){{}}"
         );
-        let _ = win.eval(&js);
+        let _ = web.eval(&js);
     }
-}
-
-pub fn is_open(app: &AppHandle) -> bool {
-    app.get_webview_window(WEB_WINDOW_LABEL).is_some()
 }
 
 const INJECT_JS: &str = r##"
@@ -189,7 +289,7 @@ const INJECT_JS: &str = r##"
     '</style>',
     '<div class="wrap">',
     '<div class="toast" id="t"></div>',
-    '<button class="btn sec" id="lib">📚 打开记忆库</button>',
+    '<button class="btn sec" id="lib">📚 编辑记忆库</button>',
     '<button class="btn" id="inj">🧠 注入记忆 <span class="badge" id="b">0</span></button>',
     '</div>'
   ].join('');
@@ -219,7 +319,7 @@ const INJECT_JS: &str = r##"
     if (cur.indexOf('【长期记忆') === 0) { toast('本条消息已经注入过记忆了'); return; }
     search(cur).then(function (mems) {
       if (!mems || !mems.length) {
-        toast('没有匹配到相关记忆。先在记忆库里加几条吧。');
+        toast('没有匹配到相关记忆。先点「编辑记忆库」加几条吧。');
         return;
       }
       var block = buildBlock(mems);
@@ -240,8 +340,8 @@ const INJECT_JS: &str = r##"
 
   shadow.getElementById('inj').addEventListener('click', doInject);
   shadow.getElementById('lib').addEventListener('click', function () {
-    invoke('focus_main_window', {}).catch(function () {
-      toast('请切回 DSonDT 主窗口打开记忆库');
+    invoke('open_memory_panel', {}).catch(function () {
+      toast('请点左侧边栏「⚙ 设置 → 记忆库」打开');
     });
   });
 

@@ -7,11 +7,21 @@ mod state;
 mod webmode;
 
 use state::AppState;
-use tauri::Manager;
+use tauri::{
+    WebviewBuilder, WebviewUrl,
+    window::WindowBuilder,
+    LogicalPosition, LogicalSize, Manager, WindowEvent,
+};
+use webmode::{MAIN_WINDOW, UI_WEBVIEW, WebState};
 
 #[tauri::command]
 fn has_api_key(state: tauri::State<AppState>) -> Result<bool, String> {
     state.get_api_key().map(|s| !s.is_empty())
+}
+
+#[tauri::command]
+fn api_key_status(state: tauri::State<AppState>) -> state::ApiKeyStatus {
+    state.api_key_status()
 }
 
 #[tauri::command]
@@ -120,19 +130,41 @@ fn memories_json(state: &AppState) -> String {
     }
 }
 
-/// 打开网页模式：内嵌官方 chat.deepseek.com，并注入本地记忆增强层。
+/// 打开网页模式：在**同一个窗口**内激活右侧的官方 chat.deepseek.com 子视图，并注入本地记忆增强层。
 #[tauri::command]
 fn open_web_mode(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
     let json = memories_json(&state);
-    webmode::open(&app, &json)
+    webmode::activate(&app, &json)
 }
 
 #[tauri::command]
 fn web_mode_open(app: tauri::AppHandle) -> bool {
-    webmode::is_open(&app)
+    webmode::is_active(&app)
 }
 
-/// 主窗口改动记忆后调用，把最新快照推给网页窗口。
+/// 切回 API 模式：隐藏远程子视图（页面与登录态都保留，随时可切回）。
+#[tauri::command]
+fn deactivate_web_mode(app: tauri::AppHandle) {
+    webmode::deactivate(&app);
+}
+
+/// 本地要弹模态框了，先把压在上面的远程 webview 藏起来，关闭后再恢复。
+#[tauri::command]
+fn set_webview_suppressed(app: tauri::AppHandle, suppressed: bool) {
+    webmode::set_suppressed(&app, suppressed);
+}
+
+/// 供网页模式里注入的「📚 编辑记忆库」按钮调用：
+/// 藏起远程视图并通知本地 UI 打开记忆库弹窗（弹窗关闭后再由前端恢复显示）。
+#[tauri::command]
+fn open_memory_panel(app: tauri::AppHandle) {
+    webmode::set_suppressed(&app, true);
+    if let Some(ui) = app.get_webview(UI_WEBVIEW) {
+        let _ = ui.eval("window.dispatchEvent(new CustomEvent('dsondt:open-memory'))");
+    }
+}
+
+/// 主窗口改动记忆后调用，把最新快照推给已打开的网页视图。
 #[tauri::command]
 fn sync_web_memories(app: tauri::AppHandle, state: tauri::State<AppState>) {
     let json = memories_json(&state);
@@ -155,13 +187,6 @@ async fn add_web_memory(state: tauri::State<'_, AppState>, content: String) -> R
     state.add_web_memory(&content).await
 }
 
-#[tauri::command]
-fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
-    let win = app.get_webview_window("main").ok_or("找不到主窗口")?;
-    win.show().map_err(|e| e.to_string())?;
-    win.set_focus().map_err(|e| e.to_string())
-}
-
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -173,11 +198,44 @@ fn main() {
             let db_path = dir.join("dsondt.db");
             let app_state = AppState::new(&db_path).map_err(|e| e.to_string())?;
             app.manage(app_state);
+            // 单窗口双视图的状态：当前是否在网页模式、是否临时藏起远程视图
+            app.manage(WebState::default());
+
+            let handle = app.handle().clone();
+
+            // 先造一个没有 webview 的纯容器窗口，再把本地 UI 作为子视图塞进去。
+            // 网页模式下再追加一个官方 deepseek 子视图，二者共处一窗。
+            let window = WindowBuilder::new(&*app, MAIN_WINDOW)
+                .title("DSonDT")
+                .build()
+                .map_err(|e| e.to_string())?;
+
+            let (w, h) = webmode::window_size(&window);
+            window
+                .add_child(
+                    WebviewBuilder::new(UI_WEBVIEW, WebviewUrl::App("index.html".into())),
+                    LogicalPosition::new(0.0, 0.0),
+                    LogicalSize::new(w, h),
+                )
+                .map_err(|e| format!("创建本地 UI 视图失败：{e}"))?;
+
+            webmode::relayout(&window);
+
+            // 窗口尺寸/缩放变化时，重新摆位两个子视图，否则它们不会跟着变大变小。
+            window.on_window_event(move |event| {
+                if let WindowEvent::Resized(_) = event {
+                    if let Some(win) = handle.get_window(MAIN_WINDOW) {
+                        webmode::relayout(&win);
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             has_api_key,
             set_api_key,
+            api_key_status,
             get_conversations,
             create_conversation,
             delete_conversation,
@@ -193,10 +251,12 @@ fn main() {
             open_url,
             open_web_mode,
             web_mode_open,
+            deactivate_web_mode,
+            set_webview_suppressed,
+            open_memory_panel,
             sync_web_memories,
             search_memories,
-            add_web_memory,
-            focus_main_window
+            add_web_memory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

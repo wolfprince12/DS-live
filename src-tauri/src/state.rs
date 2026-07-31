@@ -1,14 +1,29 @@
 use crate::db::{Db, MemoryRow};
 use crate::deepseek;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::ipc::Channel;
 
 const KEYRING_SERVICE: &str = "com.wolfprince.dsondt";
 const KEYRING_USER: &str = "deepseek-api-key";
 
+/// 本地回退文件的混淆掩码。**这不是加密**，只是避免 Key 以肉眼可读的明文躺在磁盘上。
+/// 真正的机密性依赖钥匙串；文件回退是为了在钥匙串不可用时不至于「存了读不回」。
+const MASK: &[u8] = b"DSonDT/v1/local-apikey-mask";
+
+#[derive(serde::Serialize)]
+pub struct ApiKeyStatus {
+    pub saved: bool,
+    /// 打码后的 Key，仅用于让用户确认「确实存住了」，如 `sk-abc****wxyz`
+    pub masked: String,
+    /// 是否落在钥匙串里（false 表示只有本地回退文件）
+    pub in_keyring: bool,
+}
+
 pub struct AppState {
     pub db: Mutex<Db>,
     pub client: reqwest::Client,
+    key_file: PathBuf,
 }
 
 impl AppState {
@@ -20,21 +35,98 @@ impl AppState {
         Ok(Self {
             db: Mutex::new(db),
             client,
+            key_file: db_path.with_file_name("apikey.bin"),
         })
     }
 
-    pub fn get_api_key(&self) -> Result<String, String> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
-        match entry.get_password() {
-            Ok(p) => Ok(p),
-            Err(keyring::Error::NoEntry) => Ok(String::new()),
-            Err(e) => Err(e.to_string()),
+    fn mask_bytes(data: &[u8]) -> Vec<u8> {
+        data.iter()
+            .enumerate()
+            .map(|(i, b)| b ^ MASK[i % MASK.len()])
+            .collect()
+    }
+
+    fn read_key_file(&self) -> String {
+        match std::fs::read(&self.key_file) {
+            Ok(raw) => String::from_utf8(Self::mask_bytes(&raw)).unwrap_or_default(),
+            Err(_) => String::new(),
         }
     }
 
+    fn write_key_file(&self, key: &str) -> Result<(), String> {
+        if key.is_empty() {
+            let _ = std::fs::remove_file(&self.key_file);
+            return Ok(());
+        }
+        std::fs::write(&self.key_file, Self::mask_bytes(key.as_bytes()))
+            .map_err(|e| format!("写入本地 Key 文件失败：{e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&self.key_file, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
+    }
+
+    fn keyring_key(&self) -> Option<String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?;
+        match entry.get_password() {
+            Ok(p) if !p.trim().is_empty() => Some(p),
+            _ => None,
+        }
+    }
+
+    /// 读取 Key。**永远不返回 Err**——读不到就是空字符串。
+    ///
+    /// 为什么要有文件回退：本 App 用 ad-hoc 签名分发（无 Apple 开发者账号），
+    /// 每次重新构建二进制的 cdhash 都会变，macOS 钥匙串条目的 ACL 认的是旧签名，
+    /// 新版本读取时会被系统直接拒绝。表现就是「填了 Key，重启后又说没配置」。
+    pub fn get_api_key(&self) -> Result<String, String> {
+        if let Some(k) = self.keyring_key() {
+            return Ok(k);
+        }
+        Ok(self.read_key_file())
+    }
+
+    /// 写入 Key。本地文件是主力（一定成功），钥匙串是尽力而为。
     pub fn set_api_key(&self, key: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
-        entry.set_password(key).map_err(|e| e.to_string())
+        let key = key.trim();
+        self.write_key_file(key)?;
+        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+            if key.is_empty() {
+                let _ = entry.delete_credential();
+            } else {
+                let _ = entry.set_password(key);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn api_key_status(&self) -> ApiKeyStatus {
+        let in_keyring = self.keyring_key().is_some();
+        let key = self.get_api_key().unwrap_or_default();
+        if key.is_empty() {
+            return ApiKeyStatus {
+                saved: false,
+                masked: String::new(),
+                in_keyring: false,
+            };
+        }
+        let chars: Vec<char> = key.chars().collect();
+        let masked = if chars.len() <= 12 {
+            format!("{}••••", chars.iter().take(3).collect::<String>())
+        } else {
+            format!(
+                "{}••••{}",
+                chars[..6].iter().collect::<String>(),
+                chars[chars.len() - 4..].iter().collect::<String>()
+            )
+        };
+        ApiKeyStatus {
+            saved: true,
+            masked,
+            in_keyring,
+        }
     }
 
     pub async fn chat(

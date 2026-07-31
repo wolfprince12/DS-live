@@ -50,6 +50,7 @@ body {
 
 .app {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   width: 100vw;
 }
@@ -89,6 +90,49 @@ body {
 
 .new-chat-btn:hover {
   background: var(--hover);
+}
+
+/* ===== 模式切换标签（侧边栏内，单窗口切换网页/API） ===== */
+.mode-switch {
+  display: flex;
+  gap: 4px;
+  margin: 4px 6px 12px;
+  padding: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 7px 4px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.mode-tab:hover {
+  background: var(--hover);
+}
+
+.mode-tab.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ===== 设置弹窗里的 Key 状态提示 ===== */
+.key-status {
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-top: 4px;
+  min-height: 16px;
+  word-break: break-all;
 }
 
 .conv-list {
@@ -150,6 +194,82 @@ body {
   padding: 10px 12px;
   border-top: 1px solid var(--border);
   position: relative;
+}
+
+/* ===== 全局顶栏（logo + 模式标签 + 记忆/设置） ===== */
+.app-topbar {
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  z-index: 5;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-right: 4px;
+}
+
+.app-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.app-name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.app-topbar .mode-switch {
+  margin: 0;
+}
+
+.app-topbar .spacer {
+  flex: 1;
+}
+
+.topbar-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.topbar-icon-btn:hover {
+  background: var(--hover);
+  border-color: var(--border);
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+body.modal-open .app-body {
+  display: none;
+}
+
+.sidebar-newchat {
+  padding: 10px 10px 6px;
+  flex-shrink: 0;
 }
 
 /* ===== 设置弹出菜单 ===== */

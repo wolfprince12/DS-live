@@ -2,6 +2,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 export const api = {
     hasApiKey: () => invoke("has_api_key"),
     setApiKey: (key) => invoke("set_api_key", { key }),
+    apiKeyStatus: () => invoke("api_key_status"),
     getConversations: () => invoke("get_conversations"),
     createConversation: (title) => invoke("create_conversation", { title: title ?? null }),
     deleteConversation: (id) => invoke("delete_conversation", { id }),
@@ -16,6 +17,8 @@ export const api = {
     openUrl: (url) => invoke("open_url", { url }),
     openWebMode: () => invoke("open_web_mode"),
     webModeOpen: () => invoke("web_mode_open"),
+    deactivateWebMode: () => invoke("deactivate_web_mode"),
+    setSuppressed: (suppressed) => invoke("set_webview_suppressed", { suppressed }),
     syncWebMemories: () => invoke("sync_web_memories"),
     chat: (conversationId, content, model, useMemory, thinking, onToken) => {
         const channel = new Channel();

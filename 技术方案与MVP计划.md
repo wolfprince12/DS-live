@@ -12,7 +12,7 @@
   - DeepSeek API 流式调用（SSE，chat/completions）
   - 本地存储：SQLite（对话、消息、记忆向量）
   - 记忆检索：DeepSeek embeddings API 生成向量 + 本地余弦相似度 Top-K
-  - 密钥安全：存系统钥匙串（macOS Keychain / Windows Credential Manager），不落明文
+  - 密钥安全：优先存系统钥匙串（macOS Keychain / Windows Credential Manager）；因 ad-hoc 签名二进制指纹每次构建都会变化、钥匙串 ACL 可能拒绝新二进制读取，**自动回退到本地 XOR 加密文件**（`apikey.bin`，权限 600），二者均不落明文
 - **AI 能力**：
   - 对话：`deepseek-v4-flash`（非思考）/ `deepseek-v4-pro`（思考，默认开启 `thinking`）
   - 记忆 embedding：DeepSeek `embeddings` 接口（成本极低）
@@ -31,6 +31,8 @@
 - [x] 本地持久化全部对话与消息（SQLite）
 - [x] **长期记忆（自动）**：每条用户消息入库时生成 embedding；新对话/每轮自动检索 Top-K 相关历史片段注入 system prompt
 - [x] **长期记忆（可编辑）**：新增「🧠 记忆库」面板，支持手动添加 / 编辑 / 删除记忆，自动与手动来源以标签区分（`auto` / `manual`），记忆表独立于消息表
+- [x] **单窗口双模式**：网页模式与 API 模式同处一个窗口（侧边栏顶部「🌐 网页 / 🔑 API」标签切换），网页模式下官方页面内嵌于窗口右侧、不再弹出第二个窗口；记忆库可在网页模式下直接打开编辑
+- [x] **API Key 持久化**：优先写入系统钥匙串，ad-hoc 签名导致二进制指纹变化、钥匙串读取失败时**自动回退本地 XOR 加密文件**，重启后不再丢失
 - [x] 主题：浅色 / 深色 / 跟随系统（沿用你已有的偏好逻辑）
 - [x] 对话导入 / 导出（JSON，开源用户友好）
 - [x] 关于页：GitHub 仓库链接、版本号、开源协议（MIT）
@@ -49,7 +51,8 @@ DSonDT/
 │  │  ├─ deepseek.rs    # API 流式调用 + embedding
 │  │  ├─ db.rs          # SQLite（conversations/messages/memories 三表）
 │  │  ├─ memory.rs      # 余弦相似度检索
-│  │  └─ state.rs       # 应用状态 + 记忆写入
+│  │  ├─ state.rs       # 应用状态 + 记忆写入 + API Key 持久化（钥匙串/本地加密文件）
+│  │  └─ webmode.rs     # 网页模式：同一窗口内双 WebView（本地 UI + 官方页面）+ 记忆注入
 ├─ legacy/swift-shell/  # 归档旧 Swift 代码
 └─ .github/workflows/release.yml
 ```

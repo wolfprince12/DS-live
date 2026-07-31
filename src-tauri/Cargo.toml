@@ -10,7 +10,9 @@ rust-version = "1.77"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# unstable：启用单窗口多 webview（Window::add_child / Manager::get_webview）。
+# 双模式共处一窗依赖它；API 不受 semver 保证，故版本锁死在 2.11.x。
+tauri = { version = "~2.11", features = ["unstable"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
