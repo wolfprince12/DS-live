@@ -115,7 +115,7 @@ export async function initUI() {
   document.getElementById("settings-save")!.addEventListener("click", saveSettings);
   document.getElementById("get-key-btn")!.addEventListener("click", () => void openKeyPage());
   document.getElementById("promo-dealv-btn")!.addEventListener("click", () => void api.openUrl("https://dealv.cn"));
-  document.getElementById("promo-dsondt-btn")!.addEventListener("click", () => void api.openUrl("https://github.com/wolfprince12/DSonDT"));
+  document.getElementById("promo-squirrel-btn")!.addEventListener("click", () => void api.openUrl("https://github.com/wolfprince12/squirrel-Panel"));
   document.getElementById("export-btn")!.addEventListener("click", exportCurrent);
   document.getElementById("import-btn")!.addEventListener("click", () => document.getElementById("import-file")!.click());
   document.getElementById("import-file")!.addEventListener("change", importFile);
@@ -263,11 +263,11 @@ function template(): string {
           </div>
         </div>
         <div class="promo-card">
-          <div class="promo-card-icon" style="background:#4d6bfe">⚙</div>
+          <div class="promo-card-icon" style="background:#e8a33d">⌨</div>
           <div class="promo-card-meta">
-            <div class="promo-card-title">DSonDT <span class="promo-tag">开源项目</span></div>
-            <div class="promo-card-desc">带长效记忆库的 macOS DeepSeek 桌面端。</div>
-            <button id="promo-dsondt-btn" class="promo-card-btn">查看 DSonDT ↗</button>
+            <div class="promo-card-title">鼠须管控制面板 <span class="promo-tag">开源项目</span></div>
+            <div class="promo-card-desc">超级实用的第三方鼠须管输入法配置工具。</div>
+            <button id="promo-squirrel-btn" class="promo-card-btn">查看鼠须管控制面板 ↗</button>
           </div>
         </div>
       </div>
