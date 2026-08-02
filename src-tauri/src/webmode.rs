@@ -12,15 +12,16 @@
 //! 拖动统一通过 JS `getCurrentWindow().startDragging()` 触发，对 macOS / Windows 均可靠。
 
 use std::sync::{Arc, Mutex};
-use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, WebviewBuilder, WebviewUrl,
-    Window,
-};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, WebviewUrl, Window};
+#[cfg(not(target_os = "windows"))]
+use tauri::WebviewBuilder;
 
 pub const MAIN_WINDOW: &str = "main";
 pub const WEB_WEBVIEW: &str = "deepseek";
 
 /// 必须与 style.css 里 `.app-topbar { height: 48px }` 保持一致。
+/// （仅 macOS / Linux 的「同窗叠加子 webview」方案用得到；Windows 走独立窗口。）
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub const TOP_BAR_H: f64 = 48.0;
 
 /// 当前模式状态。`active` 表示是否在网页模式；`suppressed` 表示本地要弹模态，
@@ -41,6 +42,7 @@ impl WebState {
     pub fn is_active(&self) -> bool {
         self.0.lock().unwrap().active
     }
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn is_suppressed(&self) -> bool {
         self.0.lock().unwrap().suppressed
     }
@@ -163,30 +165,61 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
 pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     let state = app.state::<WebState>();
     state.0.lock().unwrap().last_memories = memories_json.to_string();
-    if state.is_active() {
+
+    // 窗口已存在（比如用户最小化后又点了一次「网页」）→ 唤回来就行，别重复创建。
+    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        state.set_active(true);
+        state.set_suppressed(false);
         push_memories(app, memories_json);
         return Ok(());
     }
-    let url: tauri::Url = "https://chat.deepseek.com".parse().expect("deepseek URL 必合法");
-    let (w, h, x, y) = if let Some(main) = app.get_window(MAIN_WINDOW) {
-        let p = main
-            .outer_position()
-            .unwrap_or(tauri::PhysicalPosition::new(0, 0));
-        let s = main
-            .outer_size()
-            .unwrap_or(tauri::PhysicalSize::new(1280, 820));
-        (s.width as f64, s.height as f64, p.x as f64, p.y as f64)
-    } else {
-        (1280.0, 820.0, 80.0, 80.0)
-    };
-    tauri::WebviewWindowBuilder::new(app, WEB_WEBVIEW, WebviewUrl::External(url))
-        .title("DSonDT · DeepSeek")
-        .decorations(false)
+
+    let url: tauri::Url = "https://chat.deepseek.com"
+        .parse()
+        .expect("deepseek URL 必合法");
+
+    // 尺寸必须用**逻辑像素**。`outer_size()` 返回的是物理像素，在 125% / 150% DPI 缩放的
+    // Windows 上直接当逻辑值喂给 `inner_size()` 会被再乘一次缩放系数 —— 窗口大到离谱，
+    // 甚至超出 WebView2 渲染面尺寸上限，结果就是「硕大的纯白窗口」。
+    // 再叠加旧代码把窗口摆到 `x + w + 8`（主窗右侧、基本在屏幕外），观感就是一片白。
+    let (mw, mh) = app
+        .get_window(MAIN_WINDOW)
+        .map(|m| window_size(&m))
+        .unwrap_or((1280.0, 820.0));
+    let w = mw.clamp(900.0, 1440.0);
+    let h = mh.clamp(600.0, 900.0);
+
+    let win = tauri::WebviewWindowBuilder::new(app, WEB_WEBVIEW, WebviewUrl::External(url))
+        .title("DSonDT · DeepSeek 网页模式")
+        // 保留系统标题栏：这是独立 OS 窗口，用户需要有最小化 / 关闭的去处
+        // （上一版 decorations(false) 导致「没有任何按钮」，关都关不掉）。
+        .decorations(true)
         .inner_size(w, h)
-        .position(x + w + 8.0, y)
+        .min_inner_size(800.0, 560.0)
+        .center()
+        .resizable(true)
+        .visible(true)
         .initialization_script(&inject_script(memories_json))
         .build()
         .map_err(|e| format!("创建 deepseek 窗口失败：{e}"))?;
+
+    // 用户直接关掉网页窗口 → 状态回落到 API 模式，并通知本地 UI 把标签切回来，
+    // 否则 App 会一直以为自己还在网页模式。
+    let app_for_close = app.clone();
+    win.on_window_event(move |e| {
+        if let tauri::WindowEvent::CloseRequested { .. } = e {
+            let st = app_for_close.state::<WebState>();
+            st.set_active(false);
+            st.set_suppressed(false);
+            if let Some(ui) = app_for_close.get_webview(MAIN_WINDOW) {
+                let _ = ui.eval("window.dispatchEvent(new CustomEvent('dsondt:web-closed'))");
+            }
+        }
+    });
+
     state.set_active(true);
     state.set_suppressed(false);
     Ok(())
@@ -195,6 +228,7 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
 /// 处理 deepseek webview 通过 `dsondt://<action>` 派发过来的动作。
 /// 当前支持的 action：
 /// - `open-memory`：藏起远程视图，通知本地 UI 弹出记忆库面板
+#[cfg(not(target_os = "windows"))]
 fn handle_dsondt_action(app: &AppHandle, action: &str) {
     match action {
         "open-memory" => {
@@ -253,18 +287,11 @@ pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
     }
 }
 
+/// Windows：网页模式是**独立 OS 窗口**，压根不会盖住主窗口里的 modal，
+/// 所以这里只记状态、不做 hide/show —— 一 hide 用户会以为网页窗口被自己弄没了。
 #[cfg(target_os = "windows")]
 pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
-    let state = app.state::<WebState>();
-    state.set_suppressed(suppressed);
-    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
-        if suppressed {
-            let _ = w.hide();
-        } else {
-            let _ = w.show();
-            let _ = w.set_focus();
-        }
-    }
+    app.state::<WebState>().set_suppressed(suppressed);
 }
 
 /// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图（macOS / Linux：子 webview）。
@@ -509,6 +536,44 @@ const INJECT_JS: &str = r##"
     setAutoSink: function (v) { autoSink = !!v; },
     inject: doInject
   };
+
+  // 兜底：万一 DeepSeek 页面在内置浏览器里彻底渲染不出来（网络不通 / WebView2 太旧 /
+  // SPA 报错），别把用户丢在一片纯白里 —— 给一块可操作的说明面板 + 诊断信息。
+  function bailout() {
+    try {
+      if (document.getElementById('__dsondt_fallback')) return;
+      var txt = (document.body && document.body.innerText ? document.body.innerText : '').trim();
+      if (txt.length > 20) return;
+      if (document.querySelector('textarea')) return;
+      if (document.querySelector('[contenteditable="true"]')) return;
+      var d = document.createElement('div');
+      d.id = '__dsondt_fallback';
+      d.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483646;background:#fff;' +
+        'color:#1c1c22;display:flex;align-items:center;justify-content:center;padding:32px;' +
+        'font:14px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+      d.innerHTML = [
+        '<div style="max-width:560px">',
+        '<div style="font-size:18px;font-weight:600;margin-bottom:10px">DeepSeek 网页没能加载出来</div>',
+        '<div style="color:#5a5a68;margin-bottom:18px">页面在内置浏览器里一直是空白。常见原因：网络不通或需要代理；系统的 WebView2 运行时版本过旧。可以先点「重新加载」试一次。</div>',
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">',
+        '<button id="__ds_rl" style="height:36px;padding:0 16px;border:none;border-radius:8px;background:#4d6bfe;color:#fff;font-size:13px;cursor:pointer">重新加载</button>',
+        '<button id="__ds_cp" style="height:36px;padding:0 16px;border:1px solid #d5d5de;border-radius:8px;background:#fff;color:#1c1c22;font-size:13px;cursor:pointer">复制诊断信息</button>',
+        '</div>',
+        '<pre id="__ds_ua" style="white-space:pre-wrap;word-break:break-all;background:#f4f4f7;border-radius:8px;padding:12px;font-size:11px;color:#5a5a68;margin:0"></pre>',
+        '</div>'
+      ].join('');
+      (document.body || document.documentElement).appendChild(d);
+      var info = 'URL: ' + location.href + '\nUA: ' + navigator.userAgent +
+        '\nonLine: ' + navigator.onLine + '\nsize: ' + window.innerWidth + 'x' + window.innerHeight +
+        '\ndpr: ' + window.devicePixelRatio;
+      d.querySelector('#__ds_ua').textContent = info;
+      d.querySelector('#__ds_rl').addEventListener('click', function () { location.reload(); });
+      d.querySelector('#__ds_cp').addEventListener('click', function () {
+        try { navigator.clipboard.writeText(info); } catch (e) {}
+      });
+    } catch (e) {}
+  }
+  setTimeout(bailout, 9000);
 
   mount();
   setInterval(function () {
