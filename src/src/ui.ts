@@ -84,24 +84,46 @@ export async function initUI() {
   // 同时打 mousedown / mouseup / pointerdown / click，外加 target 的 pointer-events 和矩形，
   // 这样能看出是 hit-test 没命中、还是 mousedown 之后 click 被吃、还是监听根本没挂。
   try {
-    const _inv = (window as any).__TAURI_INTERNALS__?.invoke;
-    if (_inv) {
-      (window as any).__TAURI_INTERNALS__.invoke = function (cmd: string, args: any) {
-        pushDiag(`[inv→] ${cmd}`);
-        return _inv.call(this, cmd, args).then(
-          (r: any) => {
-            pushDiag(`[inv✓] ${cmd}`);
+    const w = window as any;
+    const internals = w.__TAURI_INTERNALS__;
+    if (internals) {
+      pushDiag(`[probe] saw __TAURI_INTERNALS__; keys=${Object.keys(internals).join(",")}`);
+      // 用 Proxy 监听 invoke / transformCallback 等真实 IPC 入口
+      const wrap = (key: string) => {
+        const orig = internals[key];
+        if (typeof orig !== "function") return;
+        internals[key] = function (...args: any[]) {
+          const cmd = args[0];
+          pushDiag(`[inv→] ${key}(${typeof cmd === "string" ? cmd : JSON.stringify(cmd).slice(0, 80)})`);
+          try {
+            const r = orig.apply(this, args);
+            if (r && typeof r.then === "function") {
+              return r.then(
+                (v: any) => {
+                  pushDiag(`[inv✓] ${typeof cmd === "string" ? cmd : key}`);
+                  return v;
+                },
+                (e: any) => {
+                  pushDiag(`[inv✗] ${typeof cmd === "string" ? cmd : key}: ${String(e?.message || e)}`);
+                  throw e;
+                },
+              );
+            }
+            pushDiag(`[inv✓-sync] ${typeof cmd === "string" ? cmd : key}`);
             return r;
-          },
-          (err: any) => {
-            pushDiag(`[inv✗] ${cmd}: ${String((err && err.message) || err)}`);
-            throw err;
-          },
-        );
+          } catch (e) {
+            pushDiag(`[inv✗sync] ${key}: ${String((e as any)?.message || e)}`);
+            throw e;
+          }
+        };
       };
+      for (const k of Object.keys(internals)) wrap(k);
+      pushDiag(`[probe] wrapped all __TAURI_INTERNALS__ methods`);
+    } else {
+      pushDiag(`[probe] !! window.__TAURI_INTERNALS__ is ${typeof internals} — IPC wrapper NOT installed`);
     }
-  } catch {
-    /* 忽略 */
+  } catch (e) {
+    pushDiag(`[probe] init wrapper THREW: ${String((e as any)?.message || e)}`);
   }
   const fmtTarget = (t: EventTarget | null) => {
     const el = t as HTMLElement;
@@ -179,8 +201,8 @@ export async function initUI() {
   memoryToggle.addEventListener("change", () => store.setMemory(memoryToggle.checked));
   thinkToggle.addEventListener("change", () => store.setThinking(thinkToggle.checked));
   themeSelect.addEventListener("change", () => store.setTheme(themeSelect.value));
-  document.getElementById("tab-web")!.addEventListener("click", () => void switchMode("web"));
-  document.getElementById("tab-api")!.addEventListener("click", () => void switchMode("api"));
+  document.getElementById("tab-web")!.addEventListener("click", () => { pushDiag("[hnd] tab-web click"); void switchMode("web"); });
+  document.getElementById("tab-api")!.addEventListener("click", () => { pushDiag("[hnd] tab-api click"); void switchMode("api"); });
   // 顶栏按钮：记忆库 / 设置 / 关于
   document.getElementById("memory-btn")!.addEventListener("click", () => void openMemory());
   document.getElementById("settings-btn")!.addEventListener("click", () => void openSettings());
@@ -326,21 +348,54 @@ export async function initUI() {
   // 不依赖用户手动点：如果 button.click() 都触发不了，监听根本没挂；
   // 如果能触发但 modal 没关，说明 close handler 有 bug 但 DOM/click 是好的。
   setTimeout(() => {
-    pushDiag(`[diag] === 3s self-test ===`);
-    pushDiag(`[diag] memory-modal.hidden=${memoryModal.hidden}`);
-    pushDiag(`[diag] memory-modal display=${getComputedStyle(memoryModal).display}`);
-    const btn = document.getElementById("memory-close");
-    if (!btn) {
-      pushDiag(`[diag] #memory-close NOT FOUND in DOM`);
-    } else {
-      pushDiag(`[diag] #memory-close found, pe=${getComputedStyle(btn).pointerEvents}`);
-      const r = btn.getBoundingClientRect();
-      pushDiag(`[diag] #memory-close rect @${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`);
-      pushDiag(`[diag] calling btn.click() ...`);
-      btn.click();
-      pushDiag(`[diag] btn.click() returned; modal.hidden=${memoryModal.hidden}`);
+    try {
+      pushDiag(`[diag] === 3s self-test ===`);
+      pushDiag(`[diag] memoryModal type=${typeof memoryModal}`);
+      pushDiag(`[diag] memory-modal.hidden=${(memoryModal as any)?.hidden}`);
+      pushDiag(`[diag] memory-modal display=${getComputedStyle(memoryModal as any).display}`);
+      const btn = document.getElementById("memory-close");
+      if (!btn) {
+        pushDiag(`[diag] #memory-close NOT FOUND in DOM`);
+      } else {
+        pushDiag(`[diag] #memory-close found, pe=${getComputedStyle(btn).pointerEvents}`);
+        const r = btn.getBoundingClientRect();
+        pushDiag(`[diag] #memory-close rect @${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+        pushDiag(`[diag] calling btn.click() ...`);
+        try {
+          btn.click();
+          pushDiag(`[diag] btn.click() returned; modal.hidden=${(memoryModal as any).hidden}`);
+        } catch (e) {
+          pushDiag(`[diag] btn.click() THREW: ${String((e as any)?.message || e)}`);
+        }
+      }
+      // 同时探一下 Tauri IPC 入口到底叫什么名字
+      try {
+        const w = window as any;
+        const probe = (name: string, v: any) => pushDiag(`[probe] window.${name} = ${typeof v}${typeof v === "function" ? "(fn)" : ""}`);
+        probe("__TAURI_INTERNALS__", w.__TAURI_INTERNALS__);
+        if (w.__TAURI_INTERNALS__) {
+          probe("  .invoke", w.__TAURI_INTERNALS__.invoke);
+          probe("  .transformCallback", w.__TAURI_INTERNALS__.transformCallback);
+          probe("  .metadata", w.__TAURI_INTERNALS__.metadata);
+          probe("  .plugins", w.__TAURI_INTERNALS__.plugins);
+          // 列出所有 key
+          pushDiag(`[probe] __TAURI_INTERNALS__ keys = ${Object.keys(w.__TAURI_INTERNALS__).join(",")}`);
+        }
+        probe("__TAURI__", w.__TAURI__);
+        if (w.__TAURI__) {
+          pushDiag(`[probe] __TAURI__ keys = ${Object.keys(w.__TAURI__).join(",")}`);
+        }
+        // 同时记录原生 invoke 是否被打到
+        if (!w.__TAURI_INTERNALS__?.invoke) {
+          pushDiag(`[probe] !! __TAURI_INTERNALS__.invoke NOT FOUND → API wrapper 没有拦截 IPC`);
+        }
+      } catch (e) {
+        pushDiag(`[diag] probe THREW: ${String((e as any)?.message || e)}`);
+      }
+      pushDiag(`[diag] === test end ===`);
+    } catch (e) {
+      pushDiag(`[diag] SELF-TEST OUTER THREW: ${String((e as any)?.message || e)}`);
     }
-    pushDiag(`[diag] === test end ===`);
   }, 3000);
 }
 
