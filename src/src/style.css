@@ -839,3 +839,137 @@ body.modal-open .app-body {
   resize: vertical;
   line-height: 1.5;
 }
+
+/* ===== 设置页：开发者 / 推广区块 ===== */
+.settings-modal {
+  width: 560px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.promo-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.promo-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+.promo-heading:first-of-type {
+  margin-top: -4px;
+}
+
+.promo-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.promo-author {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.promo-author-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.promo-author-title {
+  font-size: 13px;
+  color: var(--text-soft);
+  margin-top: 2px;
+}
+
+.promo-author-desc {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  line-height: 1.6;
+  margin-top: 6px;
+}
+
+.promo-card-icon {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 18px;
+}
+
+.promo-card-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.promo-card-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.promo-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.promo-card-desc {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.promo-card-qr {
+  display: block;
+  margin-top: 8px;
+  width: 100%;
+  max-width: 280px;
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
+.promo-card-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.promo-card-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}

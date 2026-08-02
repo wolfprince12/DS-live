@@ -114,6 +114,8 @@ export async function initUI() {
   document.getElementById("settings-cancel")!.addEventListener("click", () => closeSettings());
   document.getElementById("settings-save")!.addEventListener("click", saveSettings);
   document.getElementById("get-key-btn")!.addEventListener("click", () => void openKeyPage());
+  document.getElementById("promo-dealv-btn")!.addEventListener("click", () => void api.openUrl("https://dealv.cn"));
+  document.getElementById("promo-dsondt-btn")!.addEventListener("click", () => void api.openUrl("https://github.com/wolfprince12/DSonDT"));
   document.getElementById("export-btn")!.addEventListener("click", exportCurrent);
   document.getElementById("import-btn")!.addEventListener("click", () => document.getElementById("import-file")!.click());
   document.getElementById("import-file")!.addEventListener("change", importFile);
@@ -148,21 +150,31 @@ export async function initUI() {
     // 首次启动：先让用户选模式，而不是上来就要 Key
     document.getElementById("mode-modal")!.hidden = false;
     document.body.classList.add("modal-open");
-  } else if (store.mode === "api" && !(await api.hasApiKey())) {
-    openSettings();
+  } else if (store.mode === "api") {
+    // 浏览器预览（非 Tauri runtime）时 api.hasApiKey 会抛错，吞掉即可
+    try {
+      if (!(await api.hasApiKey())) openSettings();
+    } catch {
+      /* 浏览器预览环境：无 Tauri runtime，忽略 */
+    }
   } else if (store.mode === "web") {
     // 上次选了网页模式：重启后顶栏高亮正确，但 deepseek webview 不会被自动创建，
     // 需要主动调 openWebMode() 激活；否则用户会看到「按钮高亮网页、但下面仍是本地 API 界面」
     // 的状态错乱。
-    void api.openWebMode();
+    try { void api.openWebMode(); } catch { /* 浏览器预览 */ }
   }
   updateModeTabs();
-  await store.refreshConversations();
+  try { await store.refreshConversations(); } catch { /* 浏览器预览 */ }
   renderSidebar();
   if (store.conversations.length > 0) {
-    await selectConversation(store.conversations[0].id);
+    try { await selectConversation(store.conversations[0].id); } catch { /* 浏览器预览 */ }
   } else {
     newChat();
+  }
+
+  // 开发预览：URL hash 为 #settings 时自动打开设置弹窗（便于浏览器/Chrome headless 截屏验证）
+  if (window.location.hash === "#settings") {
+    setTimeout(() => openSettings(), 100);
   }
 }
 
@@ -211,7 +223,7 @@ function template(): string {
     </div>
   </div>
   <div class="modal-mask" id="settings-modal" hidden>
-    <div class="modal">
+    <div class="modal settings-modal">
       <h3>设置</h3>
       <label>主题</label>
       <select id="theme-select">
@@ -224,6 +236,42 @@ function template(): string {
       <div class="tip">Key 仅保存在本地（优先系统钥匙串，不可用时回退到本地加密文件），不会以明文上传。</div>
       <div class="key-status" id="key-status"></div>
       <button id="get-key-btn" class="link-btn">去 DeepSeek 获取 API Key ↗</button>
+
+      <div class="promo-section">
+        <div class="promo-heading">开发者</div>
+        <div class="promo-card promo-author">
+          <div class="promo-author-name">Mr大狼</div>
+          <div class="promo-author-title">导演 / 制作人 / AI 产品创作者</div>
+          <div class="promo-author-desc">20 余年影视传媒与演出制作经验，现用 AI 把经验激烈跨界重构成产品。</div>
+        </div>
+
+        <div class="promo-heading">更多作品</div>
+        <div class="promo-card">
+          <div class="promo-card-icon" style="background:#1aad19">💬</div>
+          <div class="promo-card-meta">
+            <div class="promo-card-title">爻知云 AI <span class="promo-tag">微信服务号</span></div>
+            <div class="promo-card-desc">关注获取 AI 创作助手、工作流技巧与项目动态。</div>
+            <img class="promo-card-qr" src="/yiaozhiyun-qr.png" alt="爻知云 AI 微信搜一搜二维码" />
+          </div>
+        </div>
+        <div class="promo-card">
+          <div class="promo-card-icon" style="background:#5b6cff">📄</div>
+          <div class="promo-card-meta">
+            <div class="promo-card-title">DealV <span class="promo-tag">AI 智能合同管理</span></div>
+            <div class="promo-card-desc">面向专业人群的合同智能审查与管理平台。</div>
+            <button id="promo-dealv-btn" class="promo-card-btn">访问 DealV ↗</button>
+          </div>
+        </div>
+        <div class="promo-card">
+          <div class="promo-card-icon" style="background:#4d6bfe">⚙</div>
+          <div class="promo-card-meta">
+            <div class="promo-card-title">DSonDT <span class="promo-tag">开源项目</span></div>
+            <div class="promo-card-desc">带长效记忆库的 macOS DeepSeek 桌面端。</div>
+            <button id="promo-dsondt-btn" class="promo-card-btn">查看 DSonDT ↗</button>
+          </div>
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button id="settings-cancel" class="ghost-btn">取消</button>
         <button id="settings-save" class="send-btn" style="width:auto;padding:0 18px;height:36px;">保存</button>
