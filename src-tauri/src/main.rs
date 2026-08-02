@@ -4,6 +4,7 @@ mod db;
 mod deepseek;
 mod memory;
 mod state;
+mod update;
 mod webmode;
 
 use state::AppState;
@@ -266,7 +267,8 @@ fn main() {
             open_memory_panel,
             sync_web_memories,
             search_memories,
-            add_web_memory
+            add_web_memory,
+            update::check_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

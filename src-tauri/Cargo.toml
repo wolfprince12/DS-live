@@ -1,6 +1,6 @@
 [package]
 name = "dsondt"
-version = "0.3.3"
+version = "0.3.4"
 description = "本地运行的 DeepSeek 桌面客户端，自带长期记忆"
 authors = ["wolfprince"]
 edition = "2021"

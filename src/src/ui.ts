@@ -1,7 +1,7 @@
 import { api } from "./api";
 import { store } from "./store";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Conversation, Memory } from "./types";
+import type { Conversation, Memory, UpdateInfo } from "./types";
 
 let convListEl: HTMLElement;
 let messagesEl: HTMLElement;
@@ -18,6 +18,9 @@ let memoryListEl: HTMLElement;
 let memorySearchEl: HTMLInputElement;
 let memoryNewArea: HTMLElement;
 let memoryNewInput: HTMLTextAreaElement;
+let updateModal: HTMLElement;
+/** 当前待处理的更新信息（弹窗上的按钮要用） */
+let pendingUpdate: UpdateInfo | null = null;
 
 const MODELS = [
   { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
@@ -72,6 +75,7 @@ export async function initUI() {
   memorySearchEl = document.getElementById("memory-search") as HTMLInputElement;
   memoryNewArea = document.getElementById("memory-new")!;
   memoryNewInput = document.getElementById("memory-new-input") as HTMLTextAreaElement;
+  updateModal = document.getElementById("update-modal")!;
 
   MODELS.forEach((m) => {
     const o = document.createElement("option");
@@ -107,7 +111,8 @@ export async function initUI() {
   // Esc 关闭当前打开的模态框
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (!settingsModal.hidden) closeSettings();
+      if (!updateModal.hidden) closeUpdate();
+      else if (!settingsModal.hidden) closeSettings();
       else if (!memoryModal.hidden) closeMemory();
     }
   });
@@ -116,6 +121,16 @@ export async function initUI() {
   document.getElementById("get-key-btn")!.addEventListener("click", () => void openKeyPage());
   document.getElementById("promo-dealv-btn")!.addEventListener("click", () => void api.openUrl("https://dealv.cn"));
   document.getElementById("promo-squirrel-btn")!.addEventListener("click", () => void api.openUrl("https://github.com/wolfprince12/squirrel-Panel"));
+  document.getElementById("check-update-btn")!.addEventListener("click", () => void manualCheckUpdate());
+  document.getElementById("update-later")!.addEventListener("click", () => closeUpdate());
+  document.getElementById("update-skip")!.addEventListener("click", () => {
+    if (pendingUpdate) localStorage.setItem(SKIP_VERSION_KEY, pendingUpdate.latest);
+    closeUpdate();
+  });
+  document.getElementById("update-go")!.addEventListener("click", () => {
+    if (pendingUpdate?.download_url) void api.openUrl(pendingUpdate.download_url);
+    closeUpdate();
+  });
   document.getElementById("export-btn")!.addEventListener("click", exportCurrent);
   document.getElementById("import-btn")!.addEventListener("click", () => document.getElementById("import-file")!.click());
   document.getElementById("import-file")!.addEventListener("change", importFile);
@@ -176,6 +191,14 @@ export async function initUI() {
   if (window.location.hash === "#settings") {
     setTimeout(() => openSettings(), 100);
   }
+  // 开发预览：#update-demo / #update-demo-mirror 用假数据渲染更新弹窗，仅用于截图核对样式
+  if (window.location.hash.startsWith("#update-demo")) {
+    setTimeout(() => showUpdate(demoUpdateInfo(window.location.hash.endsWith("mirror"))), 100);
+    return;
+  }
+
+  // 启动检查更新：整个进程生命周期只跑一次，延迟一点让首屏先画出来。
+  setTimeout(() => void checkUpdateOnStartup(), 1500);
 }
 
 function template(): string {
@@ -236,6 +259,12 @@ function template(): string {
       <div class="tip">Key 仅保存在本地（优先系统钥匙串，不可用时回退到本地加密文件），不会以明文上传。</div>
       <div class="key-status" id="key-status"></div>
       <button id="get-key-btn" class="link-btn">去 DeepSeek 获取 API Key ↗</button>
+
+      <div class="version-row">
+        <span class="version-label" id="version-label">版本 —</span>
+        <button id="check-update-btn" class="link-btn">检查更新</button>
+        <span class="version-status" id="version-status"></span>
+      </div>
 
       <div class="promo-section">
         <div class="promo-heading">开发者</div>
@@ -314,6 +343,35 @@ function template(): string {
           用你自己的 API Key 直连接口，按 token 计费。记忆以 system 身份注入，模型遵循度更高，
           且完全不受官网改版影响。
         </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-mask" id="update-modal" hidden>
+    <div class="modal update-modal">
+      <div class="update-head">
+        <div class="update-badge">NEW</div>
+        <div class="update-head-text">
+          <h3>发现新版本</h3>
+          <div class="update-ver">
+            <span class="update-ver-old" id="update-cur"></span>
+            <span class="update-ver-arrow">→</span>
+            <span class="update-ver-new" id="update-new"></span>
+          </div>
+        </div>
+      </div>
+      <div class="update-net" id="update-net" hidden></div>
+      <div class="update-notes-wrap" id="update-notes-wrap" hidden>
+        <div class="update-notes-title">更新内容</div>
+        <div class="update-notes" id="update-notes"></div>
+      </div>
+      <div class="update-mirrors" id="update-mirrors" hidden>
+        <div class="update-mirrors-title">备用下载线路（上面那个打不开就换一条）</div>
+        <div class="update-mirror-list" id="update-mirror-list"></div>
+      </div>
+      <div class="modal-actions update-actions">
+        <button id="update-skip" class="ghost-btn">跳过此版本</button>
+        <button id="update-later" class="ghost-btn">稍后提醒</button>
+        <button id="update-go" class="send-btn" style="width:auto;padding:0 18px;height:36px;">立即下载 ↗</button>
       </div>
     </div>
   </div>
@@ -610,6 +668,146 @@ async function importFile(e: Event) {
     alert(`导入失败：${err}`);
   }
   (e.target as HTMLInputElement).value = "";
+}
+
+// ---------- 版本更新 ----------
+
+/** 用户点了「跳过此版本」后记住版本号，同一个版本不再打扰 */
+const SKIP_VERSION_KEY = "ds_skip_version";
+/** 进程内一次性开关：启动检查每次开软件只跑一次 */
+let startupChecked = false;
+
+/**
+ * 启动检查。设计原则是「只在真有新版本时才出现」：
+ * 检查失败（断网、被墙、接口挂了）一律静默，绝不弹错误框骚扰用户。
+ */
+async function checkUpdateOnStartup() {
+  if (startupChecked) return;
+  startupChecked = true;
+  let info: UpdateInfo;
+  try {
+    info = await api.checkUpdate();
+  } catch {
+    return;
+  }
+  if (!info.checked || !info.has_update) return;
+  if (localStorage.getItem(SKIP_VERSION_KEY) === info.latest) return;
+  showUpdate(info);
+}
+
+/** 设置页里的手动检查：与启动检查相反，无论结果如何都要给用户明确回执 */
+async function manualCheckUpdate() {
+  const status = document.getElementById("version-status")!;
+  const btn = document.getElementById("check-update-btn") as HTMLButtonElement;
+  btn.disabled = true;
+  status.textContent = "检查中…";
+  try {
+    const info = await api.checkUpdate();
+    document.getElementById("version-label")!.textContent = `版本 v${info.current}`;
+    if (!info.checked) {
+      status.textContent = "连不上更新服务器，请检查网络";
+    } else if (info.has_update) {
+      status.textContent = `发现新版本 v${info.latest}`;
+      // 手动检查视为用户主动关心，之前「跳过此版本」的记录作废
+      localStorage.removeItem(SKIP_VERSION_KEY);
+      closeSettings();
+      showUpdate(info);
+    } else {
+      status.textContent = "已是最新版本";
+    }
+  } catch {
+    status.textContent = "检查失败";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showUpdate(info: UpdateInfo) {
+  pendingUpdate = info;
+  document.getElementById("update-cur")!.textContent = `v${info.current}`;
+  document.getElementById("update-new")!.textContent = `v${info.latest}`;
+
+  // GitHub 直连不通时，明确告诉用户「已经替你换成国内线路了」，别让人以为下载会失败
+  const net = document.getElementById("update-net")!;
+  net.hidden = info.github_reachable;
+  if (!info.github_reachable) {
+    net.textContent = "检测到当前网络无法直连 GitHub，已自动为你切换到国内加速镜像。";
+  }
+
+  // 更新说明：GitHub 的 body 是 Markdown，这里净化成纯文本展示（textContent 天然防注入）
+  const notesWrap = document.getElementById("update-notes-wrap")!;
+  const text = cleanNotes(info.notes);
+  document.getElementById("update-notes")!.textContent = text;
+  notesWrap.hidden = text.length === 0;
+
+  // 备用镜像只在直连不通时列出，正常用户不需要看到这些
+  const mirrors = document.getElementById("update-mirrors")!;
+  const list = document.getElementById("update-mirror-list")!;
+  list.innerHTML = "";
+  const alt = info.mirror_urls.filter((u) => u !== info.download_url);
+  if (!info.github_reachable && alt.length > 0) {
+    for (const url of alt) {
+      const b = document.createElement("button");
+      b.className = "mirror-btn";
+      b.textContent = mirrorName(url);
+      b.addEventListener("click", () => void api.openUrl(url));
+      list.appendChild(b);
+    }
+    mirrors.hidden = false;
+  } else {
+    mirrors.hidden = true;
+  }
+
+  // 网页模式下远程视图压在本地之上，弹窗前先把它藏起来，否则会被盖住。
+  if (store.mode === "web") void api.setSuppressed(true);
+  document.body.classList.add("modal-open");
+  updateModal.hidden = false;
+}
+
+function closeUpdate() {
+  updateModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  if (store.mode === "web") void api.setSuppressed(false);
+}
+
+/** 把 Markdown 版发布说明压成弹窗能直接显示的纯文本 */
+function cleanNotes(md: string): string {
+  return md
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // 图片整块去掉
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // 链接只留文字
+    .replace(/^#{1,6}\s*/gm, "") // 标题井号
+    .replace(/^[-*]\s+/gm, "· ") // 列表符号换成中点
+    .replace(/`{1,3}/g, "") // 代码反引号
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 1200);
+}
+
+/** 从镜像 URL 里取域名做按钮文案 */
+function mirrorName(url: string): string {
+  const m = /^https?:\/\/([^/]+)/.exec(url);
+  return m ? `通过 ${m[1]} 下载 ↗` : "备用线路 ↗";
+}
+
+/** 仅开发预览用：造一份假更新信息，方便截图核对弹窗样式 */
+function demoUpdateInfo(mirror: boolean): UpdateInfo {
+  const official =
+    "https://github.com/wolfprince12/DSonDT/releases/download/v0.3.4/DSonDT-0.3.4-aarch64.dmg";
+  const mirrors = ["https://ghfast.top/", "https://gh-proxy.com/", "https://ghproxy.net/"].map(
+    (m) => m + official,
+  );
+  return {
+    checked: true,
+    has_update: true,
+    current: "0.3.3",
+    latest: "0.3.4",
+    github_reachable: !mirror,
+    download_url: mirror ? mirrors[0]! : official,
+    mirror_urls: mirrors,
+    notes:
+      "## 新增\n- 启动时自动检查版本更新\n- GitHub 不可达时自动引导到国内镜像下载\n\n## 修复\n- 修复设置页推广卡片在小窗口下的排版问题",
+    release_url: "https://github.com/wolfprince12/DSonDT/releases/latest",
+  };
 }
 
 // ---------- 记忆库 ----------

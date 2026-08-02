@@ -1,5 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
-import type { Conversation, Message, Memory, ApiKeyStatus } from "./types";
+import type { Conversation, Message, Memory, ApiKeyStatus, UpdateInfo } from "./types";
 
 export const api = {
   hasApiKey: () => invoke<boolean>("has_api_key"),
@@ -27,6 +27,8 @@ export const api = {
   setSuppressed: (suppressed: boolean) =>
     invoke<void>("set_webview_suppressed", { suppressed }),
   syncWebMemories: () => invoke<void>("sync_web_memories"),
+  /** 启动时检查新版本（含 GitHub 可达性探测），失败不抛给用户 */
+  checkUpdate: () => invoke<UpdateInfo>("check_update"),
   chat: (
     conversationId: number,
     content: string,
