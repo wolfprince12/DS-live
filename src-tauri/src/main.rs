@@ -9,12 +9,8 @@ mod webmode;
 use state::AppState;
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
-use tauri::{
-    WebviewBuilder, WebviewUrl,
-    window::WindowBuilder,
-    LogicalPosition, LogicalSize, Manager, WindowEvent,
-};
-use webmode::{MAIN_WINDOW, UI_WEBVIEW, WebState};
+use tauri::{WebviewWindowBuilder, WebviewUrl, Manager, WindowEvent};
+use webmode::{MAIN_WINDOW, WebState};
 
 #[tauri::command]
 fn has_api_key(state: tauri::State<AppState>) -> Result<bool, String> {
@@ -157,7 +153,7 @@ fn set_webview_suppressed(app: tauri::AppHandle, suppressed: bool) {
 #[tauri::command]
 fn open_memory_panel(app: tauri::AppHandle) {
     webmode::set_suppressed(&app, true);
-    if let Some(ui) = app.get_webview(UI_WEBVIEW) {
+    if let Some(ui) = app.get_webview(MAIN_WINDOW) {
         let _ = ui.eval("window.dispatchEvent(new CustomEvent('dsondt:open-memory'))");
     }
 }
@@ -201,40 +197,42 @@ fn main() {
 
             let handle = app.handle().clone();
 
-            // 先造一个没有 webview 的纯容器窗口，再把本地 UI 作为子视图塞进去。
+            // 直接把本地 UI 作为窗口的「主 webview」创建（加载 index.html）。
+            // 关键：Tauri 2 的 -webkit-app-region: drag 只在「主 webview」上生效，
+            // 子 webview（add_child 出来的）上的拖动 CSS 会被系统无视——这正是之前
+            // 鼠标拖不动窗口的根因。所以 ui 必须是主 webview，deepseek 才是叠加的子视图。
             // 网页模式下再追加一个官方 deepseek 子视图，二者共处一窗。
             //
             // macOS：把原生标题栏藏掉（Overlay + hiddenTitle），让红黄绿按钮浮在我们自定义顶栏之上；
             //        否则会出现「双品牌」+ 「双标题栏」+ 顶栏被原生栏挤压变形的视觉问题。
             // （本项目目前仅面向 macOS 构建，Windows/Linux 分支已移除。）
             #[allow(unused_mut)] // mut 仅 macOS 分支用到
-            let mut win_builder = WindowBuilder::new(&*app, MAIN_WINDOW)
-                .title("DSonDT")
-                // 初始窗口尺寸：按用户期望的「正常可用」尺寸开，不要每次都得手动拉大。
-                .inner_size(1280.0, 820.0)
-                .min_inner_size(960.0, 640.0)
-                .resizable(true);
+            let mut win_builder = WebviewWindowBuilder::new(
+                &*app,
+                MAIN_WINDOW,
+                WebviewUrl::App("index.html".into()),
+            )
+            .title("DSonDT")
+            // 初始窗口尺寸：按用户期望的「正常可用」尺寸开，不要每次都得手动拉大。
+            .inner_size(1280.0, 820.0)
+            .min_inner_size(960.0, 640.0)
+            .resizable(true);
             #[cfg(target_os = "macos")]
             {
                 win_builder = win_builder
                     .title_bar_style(TitleBarStyle::Overlay)
                     .hidden_title(true);
             }
-            let window = win_builder.build().map_err(|e| e.to_string())?;
+            let ww = win_builder.build().map_err(|e| e.to_string())?;
 
-            let (w, h) = webmode::window_size(&window);
-            window
-                .add_child(
-                    WebviewBuilder::new(UI_WEBVIEW, WebviewUrl::App("index.html".into())),
-                    LogicalPosition::new(0.0, 0.0),
-                    LogicalSize::new(w, h),
-                )
-                .map_err(|e| format!("创建本地 UI 视图失败：{e}"))?;
-
-            webmode::relayout(&window);
+            // "main" 同时是窗口与主 webview 的标签；通过窗口句柄做初始布局。
+            let main_win = app
+                .get_window(MAIN_WINDOW)
+                .ok_or_else(|| "主窗口创建后未注册".to_string())?;
+            webmode::relayout(&main_win);
 
             // 窗口缩放时，重新摆位本地 UI 与（网页模式下）deepseek 子视图，否则它们不会跟着变大变小。
-            window.on_window_event(move |event| {
+            ww.on_window_event(move |event| {
                 if let WindowEvent::Resized(_) = event {
                     if let Some(win) = handle.get_window(MAIN_WINDOW) {
                         webmode::relayout(&win);

@@ -1,5 +1,6 @@
 import { api } from "./api";
 import { store } from "./store";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Conversation, Memory } from "./types";
 
 let convListEl: HTMLElement;
@@ -25,8 +26,25 @@ const MODELS = [
 
 const DEEPSEEK_KEY_URL = "https://platform.deepseek.com/api_keys";
 
-// 窗口拖动改由 CSS -webkit-app-region: drag 负责（见 style.css 的 .app-topbar 与 .sidebar），
-// 比 Tauri 的 getCurrentWindow().startDragging() 在 macOS 上更可靠。
+// 窗口拖动：macOS 上 titleBarStyle=Overlay（透明标题栏叠加）会让 CSS 的
+// -webkit-app-region: drag 失效，故改用 Tauri 的 startDragging()（JS 在
+// mousedown 手势中触发原生拖拽），对叠加标题栏 100% 可靠。
+// 顶栏/侧栏的可交互子元素（按钮、会话项等）不触发拖动。
+const NO_DRAG_SELECTOR =
+  'button, input, select, textarea, a, [contenteditable="true"], .no-drag, .mode-tab, .topbar-icon-btn, .conv-item, .new-chat-btn';
+
+function enableDrag(selector: string) {
+  const el = document.querySelector(selector) as HTMLElement | null;
+  if (!el) return;
+  el.addEventListener("mousedown", (e: MouseEvent) => {
+    if (e.button !== 0) return; // 仅响应左键
+    if ((e.target as HTMLElement).closest(NO_DRAG_SELECTOR)) return; // 交互元素不拖
+    e.preventDefault();
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {});
+  });
+}
 
 export async function initUI() {
   const app = document.getElementById("app")!;
@@ -36,7 +54,9 @@ export async function initUI() {
   if (typeof navigator !== "undefined" && /mac/i.test(navigator.platform || "")) {
     document.body.classList.add("platform-mac");
   }
-  // 拖动已由 CSS -webkit-app-region 负责（见 style.css）
+  // 拖动：JS 在顶栏/侧栏的 mousedown 上触发 startDragging()（见 enableDrag）
+  enableDrag(".app-topbar");
+  enableDrag(".sidebar");
   convListEl = document.getElementById("conv-list")!;
   messagesEl = document.getElementById("messages")!;
   inputEl = document.getElementById("input") as HTMLTextAreaElement;

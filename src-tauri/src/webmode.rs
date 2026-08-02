@@ -1,10 +1,13 @@
 //! # 单窗口双模式（macOS）
 //!
-//! API 模式 = 主窗口里只放本地 `ui` webview（铺满，含顶栏 + 侧栏 + 聊天区）。
-//! 网页模式 = 在主窗口之上叠出 `deepseek` 这个 webview，占据顶栏下方的整幅区域。
+//! API 模式 = 主窗口的「主 webview」即本地 UI（铺满，含顶栏 + 侧栏 + 聊天区）。
+//! 网页模式 = 在主窗口之上叠出 `deepseek` 这个子 webview，占据顶栏下方的整幅区域。
 //!
-//! 用 Tauri 2 `unstable` 的 `Window::add_child` 把两个 webview 放在同一个 NSWindow 内分层。
-//! 顶栏由 `ui` webview 顶部 48px 自己画，`deepseek` webview 用 `LogicalPosition(0, 48)` 摆在它下面。
+//! 用 Tauri 2 `unstable` 的 `Window::add_child` 把 deepseek 叠加到主 webview 之上，二者共处一个 NSWindow。
+//! 顶栏由主 webview 顶部 48px 自己画，`deepseek` webview 用 `LogicalPosition(0, 48)` 摆在它下面。
+//!
+//! 重要：`-webkit-app-region: drag` 只在「主 webview」上生效，子 webview 上会被系统无视；
+//! 因此本地 UI 必须是主 webview，deepseek 才是叠加的子视图（这是鼠标拖动能生效的前提）。
 //!
 //! （Windows / Linux 的 `add_child` 第二个 webview 在 WebView2 / GTK-WebKit 下渲染不可靠，
 //! 本项目已决定仅面向 macOS 构建，故不再维护那套独立顶级窗口的兜底逻辑。）
@@ -16,7 +19,6 @@ use tauri::{
 };
 
 pub const MAIN_WINDOW: &str = "main";
-pub const UI_WEBVIEW: &str = "ui";
 pub const WEB_WEBVIEW: &str = "deepseek";
 
 /// 必须与 style.css 里 `.app-topbar { height: 48px }` 保持一致。
@@ -68,8 +70,8 @@ pub fn relayout(window: &Window) {
     let (w, h) = window_size(window);
     let app = window.app_handle();
 
-    // 本地 UI 永远铺满整个窗口（含顶栏）
-    if let Some(ui) = app.get_webview(UI_WEBVIEW) {
+    // 本地 UI（主 webview）永远铺满整个窗口（含顶栏）
+    if let Some(ui) = app.get_webview(MAIN_WINDOW) {
         let _ = ui.set_position(LogicalPosition::new(0.0, 0.0));
         let _ = ui.set_size(LogicalSize::new(w, h));
     }
@@ -143,7 +145,7 @@ fn handle_dsondt_action(app: &AppHandle, action: &str) {
     match action {
         "open-memory" => {
             set_suppressed(app, true);
-            if let Some(ui) = app.get_webview(UI_WEBVIEW) {
+            if let Some(ui) = app.get_webview(MAIN_WINDOW) {
                 let _ = ui.eval("window.dispatchEvent(new CustomEvent('dsondt:open-memory'))");
             }
         }

@@ -1,7 +1,7 @@
 {
   "name": "dsondt",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "scripts": {
     "dev": "cd src && npm run dev",
     "build": "cd src && npm run build",
