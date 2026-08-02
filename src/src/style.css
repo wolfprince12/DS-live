@@ -226,6 +226,49 @@ body.platform-mac .app-topbar {
   padding-left: 80px;
 }
 
+/* Windows / Linux：decorations=false 已去掉原生标题栏，本地 UI 自绘 48px 顶栏与 macOS 一致；
+   右侧仅留极小内边距给自绘的 min/max/close 按钮（见 .win-controls），不再为原生按钮让位。 */
+body.platform-windows .app-topbar,
+body.platform-linux .app-topbar {
+  padding-left: 0;
+  padding-right: 8px;
+}
+
+/* 自绘窗口控制按钮：默认隐藏（macOS 用原生红黄绿，不需要）；仅 Windows/Linux 显示。
+   位于顶栏最右，紧跟 🧠⚙ℹ 之后，位置与 macOS 红黄绿「对侧」呼应，App 内容布局完全一致。 */
+.win-controls {
+  display: none;
+}
+body.platform-windows .win-controls,
+body.platform-linux .win-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+.win-ctrl-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text, #1f2329);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  -webkit-app-region: no-drag;
+}
+.win-ctrl-btn:hover {
+  background: rgba(128, 128, 128, 0.18);
+}
+.win-ctrl-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
 .app-brand {
   display: flex;
   align-items: center;

@@ -39,7 +39,7 @@ const DEEPSEEK_KEY_URL = "https://platform.deepseek.com/api_keys";
 // mousedown 手势中触发原生拖拽），对叠加标题栏 100% 可靠。
 // 顶栏/侧栏的可交互子元素（按钮、会话项等）不触发拖动。
 const NO_DRAG_SELECTOR =
-  'button, input, select, textarea, a, [contenteditable="true"], .no-drag, .mode-tab, .topbar-icon-btn, .conv-item, .new-chat-btn';
+  'button, input, select, textarea, a, [contenteditable="true"], .no-drag, .mode-tab, .topbar-icon-btn, .win-ctrl-btn, .conv-item, .new-chat-btn';
 
 function enableDrag(selector: string) {
   const el = document.querySelector(selector) as HTMLElement | null;
@@ -57,11 +57,16 @@ function enableDrag(selector: string) {
 export async function initUI() {
   const app = document.getElementById("app")!;
   app.innerHTML = template();
-  // 平台标识：仅 macOS 需要在顶栏左侧留 80px 让位给浮动的红黄绿按钮
-  // （Rust 侧用 titleBarStyle=Overlay 隐藏了原生标题栏，按钮会浮在我们顶栏之上）。
-  if (typeof navigator !== "undefined" && /mac/i.test(navigator.platform || "")) {
-    document.body.classList.add("platform-mac");
-  }
+  // 平台标识：决定顶栏是否显示自绘窗口控制按钮。
+  //   - macOS：titleBarStyle=Overlay 把原生红黄绿浮在顶栏左侧 → platform-mac，无需自绘按钮
+  //   - Windows：decorations=false 完全去掉原生标题栏 → platform-windows，顶栏右侧自绘 min/max/close
+  //   - 其他（Linux 等）→ platform-linux，同 Windows 策略兜底
+  // 两端都用「无原生标题栏 + 本地 UI 自绘 48px 顶栏（logo+模式标签+🧠⚙ℹ）」，App 自身 UI 与 macOS 完全一致；
+  // 唯一差异是 OS 窗口控制按钮：mac 浮在左、Windows 自绘在右（不可避免）。
+  const nav = (navigator.platform || navigator.userAgent || "").toLowerCase();
+  if (/mac/.test(nav)) document.body.classList.add("platform-mac");
+  else if (/win/.test(nav)) document.body.classList.add("platform-windows");
+  else document.body.classList.add("platform-linux");
   // 拖动：JS 在顶栏/侧栏的 mousedown 上触发 startDragging()（见 enableDrag）
   enableDrag(".app-topbar");
   enableDrag(".sidebar");
@@ -113,6 +118,12 @@ export async function initUI() {
   document.getElementById("memory-btn")!.addEventListener("click", () => void openMemory());
   document.getElementById("settings-btn")!.addEventListener("click", () => void openSettings());
   document.getElementById("about-btn")!.addEventListener("click", () => void openAbout());
+  // Windows 自绘窗口控制按钮（decorations=false 时由本地 UI 负责 min/max/close）
+  // 走 @tauri-apps/api/window 的同名方法，与 macOS 的 JS 拖动 API 同源、无需新增 Rust 命令。
+  const win = getCurrentWindow();
+  document.getElementById("win-min")?.addEventListener("click", () => void win.minimize().catch(() => {}));
+  document.getElementById("win-max")?.addEventListener("click", () => void win.toggleMaximize().catch(() => {}));
+  document.getElementById("win-close")?.addEventListener("click", () => void win.close().catch(() => {}));
   // 网页模式里注入的「📚 编辑记忆库」按钮会经 Rust 派发这个事件，由本地 UI 打开弹窗
   window.addEventListener("dsondt:open-memory", () => void openMemory());
   // Esc 关闭当前打开的模态框
@@ -256,6 +267,11 @@ function template(): string {
       <button id="memory-btn" class="topbar-icon-btn" title="记忆库">🧠</button>
       <button id="settings-btn" class="topbar-icon-btn" title="设置">⚙</button>
       <button id="about-btn" class="topbar-icon-btn" title="关于 DSonDT">ℹ</button>
+      <div class="win-controls" id="win-controls">
+        <button id="win-min" class="win-ctrl-btn" title="最小化" type="button">—</button>
+        <button id="win-max" class="win-ctrl-btn" title="最大化" type="button">□</button>
+        <button id="win-close" class="win-ctrl-btn win-ctrl-close" title="关闭" type="button">✕</button>
+      </div>
     </header>
     <div class="app-body">
       <aside class="sidebar">

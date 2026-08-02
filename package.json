@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "cd src && npm run dev",
     "build": "cd src && npm run build",
-    "tauri": "node src/node_modules/.bin/tauri"
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
   }
 }

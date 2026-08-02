@@ -1,16 +1,15 @@
-//! # 单窗口双模式（macOS）
+//! # 单窗口双模式（macOS / Windows 通用）
 //!
 //! API 模式 = 主窗口的「主 webview」即本地 UI（铺满，含顶栏 + 侧栏 + 聊天区）。
 //! 网页模式 = 在主窗口之上叠出 `deepseek` 这个子 webview，占据顶栏下方的整幅区域。
 //!
-//! 用 Tauri 2 `unstable` 的 `Window::add_child` 把 deepseek 叠加到主 webview 之上，二者共处一个 NSWindow。
+//! 用 Tauri 2 `unstable` 的 `Window::add_child` 把 deepseek 叠加到主 webview 之上，二者共处一个窗口
+//! （macOS 下是同一个 NSWindow；Windows 下是同一个父窗口 HWND 上的 WebView2 子视图），行为一致。
 //! 顶栏由主 webview 顶部 48px 自己画，`deepseek` webview 用 `LogicalPosition(0, 48)` 摆在它下面。
 //!
 //! 重要：`-webkit-app-region: drag` 只在「主 webview」上生效，子 webview 上会被系统无视；
 //! 因此本地 UI 必须是主 webview，deepseek 才是叠加的子视图（这是鼠标拖动能生效的前提）。
-//!
-//! （Windows / Linux 的 `add_child` 第二个 webview 在 WebView2 / GTK-WebKit 下渲染不可靠，
-//! 本项目已决定仅面向 macOS 构建，故不再维护那套独立顶级窗口的兜底逻辑。）
+//! 拖动统一通过 JS `getCurrentWindow().startDragging()` 触发，对 macOS / Windows 均可靠。
 
 use std::sync::{Arc, Mutex};
 use tauri::{
@@ -114,8 +113,8 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
             .initialization_script(&inject_script(memories_json))
             .on_navigation(move |nav_url| {
                 // deepseek webview 通过 location.replace('dsondt://xxx') 通知宿主；
-                // WKWebView 触发 decidePolicyForNavigationAction delegate，
-                // 我们返回 false 阻止实际导航（WKWebView 在 delegate 决定前
+                // macOS(WKWebView) / Windows(WebView2) 都会先触发导航决策回调，
+                // 我们返回 false 阻止实际导航（在 delegate/浏览器引擎决定前
                 // 不会真去解析 dsondt: scheme，也不会影响主页面 URL）。
                 if nav_url.scheme() == "dsondt" {
                     let action = nav_url.host_str().unwrap_or("").to_string();
@@ -135,7 +134,7 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     state.set_active(true);
     state.set_suppressed(false);
 
-    // 关键：Tauri 2 的 `WebviewBuilder::auto_resize()` 在 macOS 上会把刚 add_child 的
+    // 关键：Tauri 2 的 `WebviewBuilder::auto_resize()` 在部分平台（如 macOS）上会把刚 add_child 的
     // 子 webview 强制拉回 (0, 0) 铺满父窗口，导致覆盖 DSonDT 顶栏的 (0..48) 区域。
     // 这里**不使用** auto_resize，改由 `main.rs` 的 `Resized` listener + 本文件的
     // `relayout()` 手动同步位置/尺寸。add_child 之后主动再摆一次，吸收任何初始化

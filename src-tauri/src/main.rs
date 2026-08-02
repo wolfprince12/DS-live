@@ -105,7 +105,9 @@ fn open_url(url: String) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     let spawned = std::process::Command::new("open").arg(&url).spawn();
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("cmd").args(["/c", "start", "", &url]).spawn();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let spawned = std::process::Command::new("xdg-open").arg(&url).spawn();
 
     spawned.map(|_| ()).map_err(|e| format!("打开浏览器失败：{e}"))
@@ -204,10 +206,13 @@ fn main() {
             // 鼠标拖不动窗口的根因。所以 ui 必须是主 webview，deepseek 才是叠加的子视图。
             // 网页模式下再追加一个官方 deepseek 子视图，二者共处一窗。
             //
-            // macOS：把原生标题栏藏掉（Overlay + hiddenTitle），让红黄绿按钮浮在我们自定义顶栏之上；
-            //        否则会出现「双品牌」+ 「双标题栏」+ 顶栏被原生栏挤压变形的视觉问题。
-            // （本项目目前仅面向 macOS 构建，Windows/Linux 分支已移除。）
-            #[allow(unused_mut)] // mut 仅 macOS 分支用到
+            // 自定义 48px 顶栏（logo + 模式标签 + 🧠⚙ℹ），两个平台都用「无原生标题栏」方案让本地 UI 自己画：
+            //   - macOS：TitleBarStyle::Overlay + hidden_title(true) 把原生红黄绿浮在顶栏左侧
+            //            → style.css 给顶栏 padding-left:80px 让位；
+            //   - Windows：decorations(false) 完全去掉原生标题栏，在顶栏右侧自绘 min/max/close 按钮
+            //            → 顶栏右侧由前端画三个窗口控制按钮（见 ui.ts / style.css 的 platform-windows）。
+            // 仅 OS 窗口控制按钮外观/位置因平台而异（不可避免），App 自身 UI 完全对齐。
+            #[allow(unused_mut)] // mut 仅 macOS/Windows 分支用到
             let mut win_builder = WebviewWindowBuilder::new(
                 &*app,
                 MAIN_WINDOW,
@@ -223,6 +228,10 @@ fn main() {
                 win_builder = win_builder
                     .title_bar_style(TitleBarStyle::Overlay)
                     .hidden_title(true);
+            }
+            #[cfg(target_os = "windows")]
+            {
+                win_builder = win_builder.decorations(false);
             }
             let ww = win_builder.build().map_err(|e| e.to_string())?;
 
