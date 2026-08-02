@@ -370,13 +370,16 @@ function template(): string {
 
       <div class="about-products-heading">更多作品</div>
       <div class="about-products">
-        <div class="about-product">
+        <div class="about-product about-product-featured">
           <div class="about-product-top">
             <div class="about-product-icon" style="background:#1aad19">💬</div>
             <div class="about-product-name">爻知云 AI <span class="about-product-tag">微信服务号</span></div>
-            <img class="about-product-qr" src="/yiaozhiyun-qr.png" alt="爻知云 AI 微信搜一搜二维码" />
           </div>
           <div class="about-product-desc">关注公众号获取 AI 创作助手、工作流技巧与项目动态。</div>
+          <div class="about-product-qr-wrap">
+            <img class="about-product-qr" src="/yiaozhiyun-qr.png" alt="爻知云 AI 微信搜一搜二维码" />
+            <div class="about-product-qr-tip">微信扫一扫 / 搜一搜「爻知云 AI」</div>
+          </div>
         </div>
         <div class="about-product">
           <div class="about-product-top">
