@@ -60,14 +60,17 @@ export async function initUI() {
   // 显示到屏幕顶部红条，方便盲调。pointer-events:none 保证它自己不挡点击。
   const diagBox = document.createElement("div");
   diagBox.id = "diag-box";
+  // 移到右下角小窗，绝不挡 modal（之前 top:0 max-height:42% 可能跟居中 modal 重叠，是元凶之一）
   diagBox.style.cssText =
-    "position:fixed;left:0;right:0;top:0;z-index:99999;max-height:42%;overflow:auto;" +
-    "background:#b00020;color:#fff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;" +
-    "padding:8px 12px;white-space:pre-wrap;pointer-events:none;display:none;";
+    "position:fixed;right:8px;bottom:8px;width:480px;height:160px;overflow:auto;" +
+    "background:#b00020;color:#fff;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;" +
+    "padding:6px 8px;white-space:pre-wrap;pointer-events:none;z-index:2147483647;" +
+    "border:1px solid #ff7070;border-radius:6px;display:none;";
   document.body.appendChild(diagBox);
   const pushDiag = (msg: string) => {
     diagBox.style.display = "block";
     diagBox.textContent += msg + "\n";
+    diagBox.scrollTop = diagBox.scrollHeight;
   };
   window.addEventListener("error", (e) =>
     pushDiag(`[error] ${e.message}${e.filename ? ` @ ${e.filename}:${e.lineno}` : ""}`),
@@ -77,9 +80,9 @@ export async function initUI() {
       `[promise] ${e.reason instanceof Error ? e.reason.stack || e.reason.message : String(e.reason)}`,
     ),
   );
-  // —— 诊断增强：把每一次 click 与 invoke 都打到红条，盲调 Windows 交互用。
-  // click 用捕获阶段记录，能看出点击到底有没有传到按钮；
-  // invoke 包一层记录命令名 + 成功/失败，能看出是不是 IPC 在 Windows 上整体失败。
+  // —— 诊断增强 ——
+  // 同时打 mousedown / mouseup / pointerdown / click，外加 target 的 pointer-events 和矩形，
+  // 这样能看出是 hit-test 没命中、还是 mousedown 之后 click 被吃、还是监听根本没挂。
   try {
     const _inv = (window as any).__TAURI_INTERNALS__?.invoke;
     if (_inv) {
@@ -100,16 +103,24 @@ export async function initUI() {
   } catch {
     /* 忽略 */
   }
-  document.addEventListener(
-    "click",
-    (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      pushDiag(
-        `[click] ${t.tagName}#${t.id}.${(t.className || "").toString().slice(0, 48)} dp=${e.defaultPrevented}`,
-      );
-    },
-    true,
-  );
+  const fmtTarget = (t: EventTarget | null) => {
+    const el = t as HTMLElement;
+    if (!el || !el.tagName) return "?";
+    const cls = (el.className || "").toString().slice(0, 32);
+    let pe = "?";
+    let rect = "";
+    try {
+      pe = getComputedStyle(el).pointerEvents;
+      const r = el.getBoundingClientRect();
+      rect = `@${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+    } catch {}
+    return `${el.tagName}#${el.id || ""}.${cls} pe=${pe}${rect}`;
+  };
+  const log = (ev: string) => (e: Event) => pushDiag(`[${ev}] ${fmtTarget(e.target)}`);
+  document.addEventListener("pointerdown", log("pdown"), true);
+  document.addEventListener("mousedown", log("mdown"), true);
+  document.addEventListener("mouseup", log("mup"), true);
+  document.addEventListener("click", log("click"), true);
 
   const app = document.getElementById("app")!;
   app.innerHTML = template();
@@ -310,6 +321,27 @@ export async function initUI() {
 
   // 启动检查更新：整个进程生命周期只跑一次，延迟一点让首屏先画出来。
   setTimeout(() => void checkUpdateOnStartup(), 1500);
+
+  // —— 诊断：3 秒后程序化触发 memory-close 按钮 click ——
+  // 不依赖用户手动点：如果 button.click() 都触发不了，监听根本没挂；
+  // 如果能触发但 modal 没关，说明 close handler 有 bug 但 DOM/click 是好的。
+  setTimeout(() => {
+    pushDiag(`[diag] === 3s self-test ===`);
+    pushDiag(`[diag] memory-modal.hidden=${memoryModal.hidden}`);
+    pushDiag(`[diag] memory-modal display=${getComputedStyle(memoryModal).display}`);
+    const btn = document.getElementById("memory-close");
+    if (!btn) {
+      pushDiag(`[diag] #memory-close NOT FOUND in DOM`);
+    } else {
+      pushDiag(`[diag] #memory-close found, pe=${getComputedStyle(btn).pointerEvents}`);
+      const r = btn.getBoundingClientRect();
+      pushDiag(`[diag] #memory-close rect @${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+      pushDiag(`[diag] calling btn.click() ...`);
+      btn.click();
+      pushDiag(`[diag] btn.click() returned; modal.hidden=${memoryModal.hidden}`);
+    }
+    pushDiag(`[diag] === test end ===`);
+  }, 3000);
 }
 
 function template(): string {
