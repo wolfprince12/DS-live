@@ -82,10 +82,13 @@ pub fn relayout(window: &Window) {
         return;
     }
 
-    // 网页模式下：让 deepseek 视图覆盖顶栏下方整块区域
-    if let Some(web) = app.get_webview(WEB_WEBVIEW) {
-        let _ = web.set_position(LogicalPosition::new(0.0, TOP_BAR_H));
-        let _ = web.set_size(LogicalSize::new(w, (h - TOP_BAR_H).max(1.0)));
+    // Windows 上网页模式是独立窗口，不由 relayout 管理；仅 macOS / Linux 需要同步子 webview 位置。
+    #[cfg(not(target_os = "windows"))]
+    if app.state::<WebState>().is_active() {
+        if let Some(web) = app.get_webview(WEB_WEBVIEW) {
+            let _ = web.set_position(LogicalPosition::new(0.0, TOP_BAR_H));
+            let _ = web.set_size(LogicalSize::new(w, (h - TOP_BAR_H).max(1.0)));
+        }
     }
 }
 
@@ -93,6 +96,7 @@ pub fn relayout(window: &Window) {
 /// 通过 `on_navigation` 拦截 `dsondt://` 自定义 scheme 来桥接外部 webview
 /// 与宿主本地命令——不走 Tauri IPC（外部 URL 的 webview 调自定义命令在 Tauri 2
 /// 已知有 capability 坑，issue #10298/#10317），更稳。
+#[cfg(not(target_os = "windows"))]
 pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     let state = app.state::<WebState>();
     // 缓存记忆 JSON，供 modal 关闭后重建子视图用
@@ -151,6 +155,43 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 网页模式（Windows）：**不用 add_child**（WebView2 上 z-order 不可控、渲染表面压顶吞点击，
+/// 见 Tauri issue #6264 与 WebView2 的「Topmost Render Surface」问题），改用独立的无边框
+/// WebviewWindow 加载 chat.deepseek.com，并排在主窗口右侧。deepseek 是普通 OS 窗口，
+/// 绝不覆盖主 webview，主窗口所有按钮永远可点；modal 打开时 hide 此窗口、关闭后 show。
+#[cfg(target_os = "windows")]
+pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
+    let state = app.state::<WebState>();
+    state.0.lock().unwrap().last_memories = memories_json.to_string();
+    if state.is_active() {
+        push_memories(app, memories_json);
+        return Ok(());
+    }
+    let url: tauri::Url = "https://chat.deepseek.com".parse().expect("deepseek URL 必合法");
+    let (w, h, x, y) = if let Some(main) = app.get_window(MAIN_WINDOW) {
+        let p = main
+            .outer_position()
+            .unwrap_or(tauri::PhysicalPosition::new(0, 0));
+        let s = main
+            .outer_size()
+            .unwrap_or(tauri::PhysicalSize::new(1280, 820));
+        (s.width as f64, s.height as f64, p.x as f64, p.y as f64)
+    } else {
+        (1280.0, 820.0, 80.0, 80.0)
+    };
+    tauri::WebviewWindowBuilder::new(app, WEB_WEBVIEW, WebviewUrl::External(url))
+        .title("DSonDT · DeepSeek")
+        .decorations(false)
+        .inner_size(tauri::LogicalSize::new(w, h))
+        .position(tauri::LogicalPosition::new(x + w + 8.0, y))
+        .initialization_script(&inject_script(memories_json))
+        .build()
+        .map_err(|e| format!("创建 deepseek 窗口失败：{e}"))?;
+    state.set_active(true);
+    state.set_suppressed(false);
+    Ok(())
+}
+
 /// 处理 deepseek webview 通过 `dsondt://<action>` 派发过来的动作。
 /// 当前支持的 action：
 /// - `open-memory`：藏起远程视图，通知本地 UI 弹出记忆库面板
@@ -169,6 +210,7 @@ fn handle_dsondt_action(app: &AppHandle, action: &str) {
 }
 
 /// 退出网页模式：deepseek 子视图关闭，下次切回重新 add_child。
+#[cfg(not(target_os = "windows"))]
 pub fn deactivate(app: &AppHandle) {
     let state = app.state::<WebState>();
     state.set_active(false);
@@ -178,46 +220,71 @@ pub fn deactivate(app: &AppHandle) {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn deactivate(app: &AppHandle) {
+    let state = app.state::<WebState>();
+    state.set_active(false);
+    state.set_suppressed(false);
+    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
+        let _ = w.close();
+    }
+}
+
 pub fn is_active(app: &AppHandle) -> bool {
     app.state::<WebState>().is_active()
 }
 
 /// 临时隐藏 / 恢复 deepseek 视图（用于本地弹模态）。
-/// 设计：suppressed=true 时**直接关闭**子视图（而非 hide），避免 WebView2 上 hide() 不可靠
-/// 导致 deepseek 仍 z-order 在主 webview 之上盖住 modal；suppressed=false 时如果之前 active
-/// 且 last_memories 非空，自动用缓存的记忆重建子视图（用户切回网页模式看到的还是同一份记忆）。
+/// macOS / Linux：直接 hide/show 子 webview（WKWebView 上可靠）；
+/// Windows：hide/show 独立窗口（OS 级操作，比 add_child 子 webview 的 hide 可靠得多）。
+#[cfg(not(target_os = "windows"))]
 pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
     let state = app.state::<WebState>();
-    // 在改状态前先快照"进入此函数时是否处于 active 网页模式"
-    let prev_active = state.is_active();
-    let last_memories = state.0.lock().unwrap().last_memories.clone();
     state.set_suppressed(suppressed);
-
-    if suppressed {
-        // 不管 active 与否都尝试关闭（防御性，避免 WebView2 上残留旧 webview 抢 z-order）
-        if let Some(w) = app.get_webview(WEB_WEBVIEW) {
-            let _ = w.close();
-        }
-        // 关闭后视作 active=false（webview 真的没了）
-        state.set_active(false);
+    if !state.is_active() {
         return;
     }
-
-    // suppressed=false：仅当之前 active 且有缓存记忆时，才重建子视图
-    if prev_active && !last_memories.is_empty() && last_memories != "[]" {
-        // activate 内部已经有"已 active 则 return"的短路
-        if let Err(e) = activate(app, &last_memories) {
-            eprintln!("[webmode] 重建 deepseek 子视图失败：{e}");
+    if let Some(w) = app.get_webview(WEB_WEBVIEW) {
+        if suppressed {
+            let _ = w.hide();
+        } else {
+            let _ = w.show();
         }
     }
 }
 
-/// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图（供注入脚本的 setMemories 消费）。
+#[cfg(target_os = "windows")]
+pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
+    let state = app.state::<WebState>();
+    state.set_suppressed(suppressed);
+    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
+        if suppressed {
+            let _ = w.hide();
+        } else {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+}
+
+/// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图（macOS / Linux：子 webview）。
+#[cfg(not(target_os = "windows"))]
 pub fn push_memories(app: &AppHandle, json: &str) {
     let js = format!(
         "try{{window.__DSONDT__&&window.__DSONDT__.setMemories({json})}}catch(e){{}}"
     );
     if let Some(w) = app.get_webview(WEB_WEBVIEW) {
+        let _ = w.eval(&js);
+    }
+}
+
+/// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图（Windows：独立窗口）。
+#[cfg(target_os = "windows")]
+pub fn push_memories(app: &AppHandle, json: &str) {
+    let js = format!(
+        "try{{window.__DSONDT__&&window.__DSONDT__.setMemories({json})}}catch(e){{}}"
+    );
+    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
         let _ = w.eval(&js);
     }
 }
