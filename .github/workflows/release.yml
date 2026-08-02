@@ -7,6 +7,9 @@ on:
 
 jobs:
   release:
+    # 临时禁用：此 workflow 一直构建失败且从未用于实际发布（mac 版一直本机手动发 Release）；
+    # 保留文件备查。恢复自动发布时去掉此行并修复 tauri-action 构建步骤即可。
+    if: false
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
