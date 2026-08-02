@@ -3,7 +3,7 @@ name: Build Windows
 on:
   # 手动触发：Actions 页面点 Run workflow 即可产出 Windows 安装包
   workflow_dispatch:
-  # 推 v* 标签时也自动构建（与 mac 版同版本号一起发）
+  # 推 v* 标签时也自动构建并发布到 GitHub Release（与 mac 版同版本号）
   push:
     tags:
       - "v*"
@@ -50,13 +50,53 @@ jobs:
         # 仅产出 msi 与 nsis（mac 的 app/dmg 不受影响）。
         run: npm run tauri build
 
-      - name: Upload installers
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          $cfg = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
+          echo "version=$($cfg.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Package portable zip (no-install, extract & run)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -Path src-tauri/target -Recurse -Filter DSonDT.exe -File | Select-Object -First 1).FullName
+          if (-not $exe) { throw "DSonDT.exe not found after build" }
+          $srcDir = Split-Path $exe
+          $out = Join-Path $env:RUNNER_TEMP "portable"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item $exe $out
+          # 复制同目录可能的运行时依赖（WebView2 由系统提供，通常无需额外 dll）
+          Get-ChildItem $srcDir -Filter *.dll | ForEach-Object { Copy-Item $_.FullName $out }
+          $readme = @"
+DSonDT 便携版（Windows）
+=====================
+解压后直接双击 DSonDT.exe 即可运行，无需安装。
+
+环境要求：
+- Windows 10 / 11
+- 已安装 Microsoft Edge WebView2 Runtime
+  （Win11 自带；Win10 多数已预装。若启动报错提示缺少 WebView2，
+   请到 https://developer.microsoft.com/microsoft-edge/webview2/ 下载安装）
+
+功能与 macOS 版完全一致：
+- 本地 DeepSeek API 模式 + 网页模式（双视图）
+- 长期记忆、记忆库面板、设置、关于
+- 顶栏右侧自绘 最小化 / 最大化 / 关闭 按钮
+"@
+          Set-Content -Path (Join-Path $out "README.txt") -Value $readme -Encoding UTF8
+          $zip = "DSonDT-${{ steps.ver.outputs.version }}-windows-portable.zip"
+          Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip -Force
+          echo "Created $zip"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: DSonDT-windows
           path: |
             src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis?/*.exe
+            src-tauri/target/release/bundle/nsis/*.exe
+            DSonDT-${{ steps.ver.outputs.version }}-windows-portable.zip
           if-no-files-found: error
 
       - name: Publish to GitHub Release (if tagged)
@@ -65,6 +105,7 @@ jobs:
         with:
           files: |
             src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis?/*.exe
+            src-tauri/target/release/bundle/nsis/*.exe
+            DSonDT-${{ steps.ver.outputs.version }}-windows-portable.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
