@@ -60,9 +60,8 @@ export async function initUI() {
   // 显示到屏幕顶部红条，方便盲调。pointer-events:none 保证它自己不挡点击。
   const diagBox = document.createElement("div");
   diagBox.id = "diag-box";
-  // 移到右下角小窗，绝不挡 modal（之前 top:0 max-height:42% 可能跟居中 modal 重叠，是元凶之一）
   diagBox.style.cssText =
-    "position:fixed;right:8px;bottom:8px;width:480px;height:160px;overflow:auto;" +
+    "position:fixed;right:8px;bottom:8px;width:480px;height:140px;overflow:auto;" +
     "background:#b00020;color:#fff;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;" +
     "padding:6px 8px;white-space:pre-wrap;pointer-events:none;z-index:2147483647;" +
     "border:1px solid #ff7070;border-radius:6px;display:none;";
@@ -80,69 +79,22 @@ export async function initUI() {
       `[promise] ${e.reason instanceof Error ? e.reason.stack || e.reason.message : String(e.reason)}`,
     ),
   );
-  // —— 诊断增强 ——
-  // 同时打 mousedown / mouseup / pointerdown / click，外加 target 的 pointer-events 和矩形，
-  // 这样能看出是 hit-test 没命中、还是 mousedown 之后 click 被吃、还是监听根本没挂。
+  // —— IPC 入口探测 ——
+  // 部分 Windows WebView2 上原生层只注入了 __TAURI_INTERNALS__.plugins（plugin 命令），
+  // 但没注入 .invoke（自定义命令）。把真入口直接打到红条，方便定位。
   try {
     const w = window as any;
-    const internals = w.__TAURI_INTERNALS__;
-    if (internals) {
-      pushDiag(`[probe] saw __TAURI_INTERNALS__; keys=${Object.keys(internals).join(",")}`);
-      // 用 Proxy 监听 invoke / transformCallback 等真实 IPC 入口
-      const wrap = (key: string) => {
-        const orig = internals[key];
-        if (typeof orig !== "function") return;
-        internals[key] = function (...args: any[]) {
-          const cmd = args[0];
-          pushDiag(`[inv→] ${key}(${typeof cmd === "string" ? cmd : JSON.stringify(cmd).slice(0, 80)})`);
-          try {
-            const r = orig.apply(this, args);
-            if (r && typeof r.then === "function") {
-              return r.then(
-                (v: any) => {
-                  pushDiag(`[inv✓] ${typeof cmd === "string" ? cmd : key}`);
-                  return v;
-                },
-                (e: any) => {
-                  pushDiag(`[inv✗] ${typeof cmd === "string" ? cmd : key}: ${String(e?.message || e)}`);
-                  throw e;
-                },
-              );
-            }
-            pushDiag(`[inv✓-sync] ${typeof cmd === "string" ? cmd : key}`);
-            return r;
-          } catch (e) {
-            pushDiag(`[inv✗sync] ${key}: ${String((e as any)?.message || e)}`);
-            throw e;
-          }
-        };
-      };
-      for (const k of Object.keys(internals)) wrap(k);
-      pushDiag(`[probe] wrapped all __TAURI_INTERNALS__ methods`);
-    } else {
-      pushDiag(`[probe] !! window.__TAURI_INTERNALS__ is ${typeof internals} — IPC wrapper NOT installed`);
-    }
+    const probe = (name: string, v: any) =>
+      pushDiag(`[probe] ${name} = ${typeof v}${typeof v === "function" ? "(fn)" : v && typeof v === "object" ? `(obj, keys=${Object.keys(v).slice(0, 8).join(",")})` : ""}`);
+    probe("window.__TAURI_INTERNALS__", w.__TAURI_INTERNALS__);
+    probe("window.__TAURI_INTERNALS__.invoke", w.__TAURI_INTERNALS__?.invoke);
+    probe("window.__TAURI__", w.__TAURI__);
+    probe("window.__TAURI__.core.invoke", w.__TAURI__?.core?.invoke);
+    const ua = (navigator.userAgent || "").slice(0, 120);
+    pushDiag(`[probe] UA = ${ua}`);
   } catch (e) {
-    pushDiag(`[probe] init wrapper THREW: ${String((e as any)?.message || e)}`);
+    pushDiag(`[probe] THREW: ${String((e as any)?.message || e)}`);
   }
-  const fmtTarget = (t: EventTarget | null) => {
-    const el = t as HTMLElement;
-    if (!el || !el.tagName) return "?";
-    const cls = (el.className || "").toString().slice(0, 32);
-    let pe = "?";
-    let rect = "";
-    try {
-      pe = getComputedStyle(el).pointerEvents;
-      const r = el.getBoundingClientRect();
-      rect = `@${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
-    } catch {}
-    return `${el.tagName}#${el.id || ""}.${cls} pe=${pe}${rect}`;
-  };
-  const log = (ev: string) => (e: Event) => pushDiag(`[${ev}] ${fmtTarget(e.target)}`);
-  document.addEventListener("pointerdown", log("pdown"), true);
-  document.addEventListener("mousedown", log("mdown"), true);
-  document.addEventListener("mouseup", log("mup"), true);
-  document.addEventListener("click", log("click"), true);
 
   const app = document.getElementById("app")!;
   app.innerHTML = template();
@@ -201,8 +153,8 @@ export async function initUI() {
   memoryToggle.addEventListener("change", () => store.setMemory(memoryToggle.checked));
   thinkToggle.addEventListener("change", () => store.setThinking(thinkToggle.checked));
   themeSelect.addEventListener("change", () => store.setTheme(themeSelect.value));
-  document.getElementById("tab-web")!.addEventListener("click", () => { pushDiag("[hnd] tab-web click"); void switchMode("web"); });
-  document.getElementById("tab-api")!.addEventListener("click", () => { pushDiag("[hnd] tab-api click"); void switchMode("api"); });
+  document.getElementById("tab-web")!.addEventListener("click", () => void switchMode("web"));
+  document.getElementById("tab-api")!.addEventListener("click", () => void switchMode("api"));
   // 顶栏按钮：记忆库 / 设置 / 关于
   document.getElementById("memory-btn")!.addEventListener("click", () => void openMemory());
   document.getElementById("settings-btn")!.addEventListener("click", () => void openSettings());
@@ -343,60 +295,6 @@ export async function initUI() {
 
   // 启动检查更新：整个进程生命周期只跑一次，延迟一点让首屏先画出来。
   setTimeout(() => void checkUpdateOnStartup(), 1500);
-
-  // —— 诊断：3 秒后程序化触发 memory-close 按钮 click ——
-  // 不依赖用户手动点：如果 button.click() 都触发不了，监听根本没挂；
-  // 如果能触发但 modal 没关，说明 close handler 有 bug 但 DOM/click 是好的。
-  setTimeout(() => {
-    try {
-      pushDiag(`[diag] === 3s self-test ===`);
-      pushDiag(`[diag] memoryModal type=${typeof memoryModal}`);
-      pushDiag(`[diag] memory-modal.hidden=${(memoryModal as any)?.hidden}`);
-      pushDiag(`[diag] memory-modal display=${getComputedStyle(memoryModal as any).display}`);
-      const btn = document.getElementById("memory-close");
-      if (!btn) {
-        pushDiag(`[diag] #memory-close NOT FOUND in DOM`);
-      } else {
-        pushDiag(`[diag] #memory-close found, pe=${getComputedStyle(btn).pointerEvents}`);
-        const r = btn.getBoundingClientRect();
-        pushDiag(`[diag] #memory-close rect @${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`);
-        pushDiag(`[diag] calling btn.click() ...`);
-        try {
-          btn.click();
-          pushDiag(`[diag] btn.click() returned; modal.hidden=${(memoryModal as any).hidden}`);
-        } catch (e) {
-          pushDiag(`[diag] btn.click() THREW: ${String((e as any)?.message || e)}`);
-        }
-      }
-      // 同时探一下 Tauri IPC 入口到底叫什么名字
-      try {
-        const w = window as any;
-        const probe = (name: string, v: any) => pushDiag(`[probe] window.${name} = ${typeof v}${typeof v === "function" ? "(fn)" : ""}`);
-        probe("__TAURI_INTERNALS__", w.__TAURI_INTERNALS__);
-        if (w.__TAURI_INTERNALS__) {
-          probe("  .invoke", w.__TAURI_INTERNALS__.invoke);
-          probe("  .transformCallback", w.__TAURI_INTERNALS__.transformCallback);
-          probe("  .metadata", w.__TAURI_INTERNALS__.metadata);
-          probe("  .plugins", w.__TAURI_INTERNALS__.plugins);
-          // 列出所有 key
-          pushDiag(`[probe] __TAURI_INTERNALS__ keys = ${Object.keys(w.__TAURI_INTERNALS__).join(",")}`);
-        }
-        probe("__TAURI__", w.__TAURI__);
-        if (w.__TAURI__) {
-          pushDiag(`[probe] __TAURI__ keys = ${Object.keys(w.__TAURI__).join(",")}`);
-        }
-        // 同时记录原生 invoke 是否被打到
-        if (!w.__TAURI_INTERNALS__?.invoke) {
-          pushDiag(`[probe] !! __TAURI_INTERNALS__.invoke NOT FOUND → API wrapper 没有拦截 IPC`);
-        }
-      } catch (e) {
-        pushDiag(`[diag] probe THREW: ${String((e as any)?.message || e)}`);
-      }
-      pushDiag(`[diag] === test end ===`);
-    } catch (e) {
-      pushDiag(`[diag] SELF-TEST OUTER THREW: ${String((e as any)?.message || e)}`);
-    }
-  }, 3000);
 }
 
 function template(): string {
