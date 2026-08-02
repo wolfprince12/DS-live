@@ -55,6 +55,29 @@ function enableDrag(selector: string) {
 }
 
 export async function initUI() {
+  // —— 诊断浮层 ——
+  // Windows 虚拟机里没法开 DevTools，这里把任何未捕获的 JS 报错 / Promise 拒绝
+  // 显示到屏幕顶部红条，方便盲调。pointer-events:none 保证它自己不挡点击。
+  const diagBox = document.createElement("div");
+  diagBox.id = "diag-box";
+  diagBox.style.cssText =
+    "position:fixed;left:0;right:0;top:0;z-index:99999;max-height:42%;overflow:auto;" +
+    "background:#b00020;color:#fff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;" +
+    "padding:8px 12px;white-space:pre-wrap;pointer-events:none;display:none;";
+  document.body.appendChild(diagBox);
+  const pushDiag = (msg: string) => {
+    diagBox.style.display = "block";
+    diagBox.textContent += msg + "\n";
+  };
+  window.addEventListener("error", (e) =>
+    pushDiag(`[error] ${e.message}${e.filename ? ` @ ${e.filename}:${e.lineno}` : ""}`),
+  );
+  window.addEventListener("unhandledrejection", (e) =>
+    pushDiag(
+      `[promise] ${e.reason instanceof Error ? e.reason.stack || e.reason.message : String(e.reason)}`,
+    ),
+  );
+
   const app = document.getElementById("app")!;
   app.innerHTML = template();
   // 平台标识：决定顶栏是否显示自绘窗口控制按钮。
@@ -120,10 +143,15 @@ export async function initUI() {
   document.getElementById("about-btn")!.addEventListener("click", () => void openAbout());
   // Windows 自绘窗口控制按钮（decorations=false 时由本地 UI 负责 min/max/close）
   // 走 @tauri-apps/api/window 的同名方法，与 macOS 的 JS 拖动 API 同源、无需新增 Rust 命令。
-  const win = getCurrentWindow();
-  document.getElementById("win-min")?.addEventListener("click", () => void win.minimize().catch(() => {}));
-  document.getElementById("win-max")?.addEventListener("click", () => void win.toggleMaximize().catch(() => {}));
-  document.getElementById("win-close")?.addEventListener("click", () => void win.close().catch(() => {}));
+  try {
+    const win = getCurrentWindow();
+    document.getElementById("win-min")?.addEventListener("click", () => void win.minimize().catch(() => {}));
+    document.getElementById("win-max")?.addEventListener("click", () => void win.toggleMaximize().catch(() => {}));
+    document.getElementById("win-close")?.addEventListener("click", () => void win.close().catch(() => {}));
+  } catch (e) {
+    // 极端情况下拿不到窗口句柄也不要让 initUI 中断（否则模态框内部按钮等监听都不会挂载）
+    pushDiag(`[win-ctrl] ${e}`);
+  }
   // 网页模式里注入的「📚 编辑记忆库」按钮会经 Rust 派发这个事件，由本地 UI 打开弹窗
   window.addEventListener("dsondt:open-memory", () => void openMemory());
   // Esc 关闭当前打开的模态框
@@ -642,12 +670,10 @@ function closeSettings() {
 }
 
 function openSettings() {
-  // 网页模式下远程视图压在本地之上，弹窗前先把它藏起来，否则会被盖住。
-  if (store.mode === "web") {
-    void api.setSuppressed(true);
-  }
+  // 先显示弹窗（即便下面的 invoke 失败也不能让窗口打不开）
   document.body.classList.add("modal-open");
   settingsModal.hidden = false;
+  if (store.mode === "web") api.setSuppressed(true).catch(() => {});
   apiKeyInput.value = "";
   apiKeyInput.focus();
   void showKeyStatus();
@@ -673,6 +699,9 @@ async function enterWebMode() {
   try {
     await api.openWebMode();
   } catch (e) {
+    // 打开失败要回退模式，否则 app 会一直以为自己在网页模式（后续弹窗都去 setSuppressed）
+    store.setMode("api");
+    updateModeTabs();
     alert(`打开网页模式失败：${e}`);
   }
 }
@@ -680,11 +709,15 @@ async function enterWebMode() {
 /** 侧边栏的网页/API 切换标签：网页模式激活右侧官方视图，API 模式隐藏它并回到本地聊天。 */
 async function switchMode(mode: "web" | "api") {
   if (mode === "web") {
+    const prev = store.mode;
     store.setMode("web");
     updateModeTabs();
     try {
       await api.openWebMode();
     } catch (e) {
+      // 打开失败回退，避免卡在「半网页模式」
+      store.setMode(prev || "api");
+      updateModeTabs();
       alert(`打开网页模式失败：${e}`);
     }
   } else {
@@ -830,10 +863,10 @@ function closeUpdate() {
 // ---------- 关于弹窗 ----------
 
 function openAbout() {
-  // 网页模式下远程视图压在本地之上，弹窗前先把它藏起来，否则会被盖住。
-  if (store.mode === "web") void api.setSuppressed(true);
+  // 先显示弹窗（即便下面的 invoke 失败也不能让窗口打不开）
   document.body.classList.add("modal-open");
   aboutModal.hidden = false;
+  if (store.mode === "web") api.setSuppressed(true).catch(() => {});
   // 展示当前版本号
   const label = document.getElementById("about-version-label");
   if (label) label.textContent = `版本 v${appVersion || "—"}`;
@@ -924,12 +957,10 @@ function demoUpdateInfo(mirror: boolean): UpdateInfo {
 // ---------- 记忆库 ----------
 
 async function openMemory() {
-  // 网页模式下远程视图压在本地之上，弹窗前先把它藏起来，否则会被盖住。
-  if (store.mode === "web") {
-    await api.setSuppressed(true);
-  }
+  // 先显示弹窗（即便下面的 invoke 失败也不能让窗口打不开）
   document.body.classList.add("modal-open");
   memoryModal.hidden = false;
+  if (store.mode === "web") api.setSuppressed(true).catch(() => {});
   await refreshMemories();
 }
 

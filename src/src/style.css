@@ -213,13 +213,12 @@ body {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   z-index: 5;
-  -webkit-app-region: drag;
 }
 
-.app-topbar .mode-tab,
-.app-topbar .topbar-icon-btn {
-  -webkit-app-region: no-drag;
-}
+/* 拖动统一由 JS 的 getCurrentWindow().startDragging() 在 mousedown 手势里触发
+   （见 ui.ts 的 enableDrag）。注意：绝不能在顶栏写 -webkit-app-region: drag ——
+    macOS 的 Overlay 标题栏会让它失效，但 Windows 的 WebView2(Chromium) 会真实生效，
+   变成原生拖拽区，与 JS 拖动冲突并吞掉点击。两端都只用 JS 拖动，保持一致。 */
 
 /* macOS: titleBarStyle=Overlay 时红黄绿按钮浮在我们顶栏左侧 ~12-72px，需要让位 */
 body.platform-mac .app-topbar {
