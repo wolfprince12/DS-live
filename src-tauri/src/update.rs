@@ -249,6 +249,13 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
     Ok(info)
 }
 
+/// 返回当前安装的版本号（来自 Cargo.toml 的 CARGO_PKG_VERSION）。
+/// 不联网，给「关于」弹窗即时显示本地版本用。
+#[tauri::command]
+pub fn get_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::is_newer;

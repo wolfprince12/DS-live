@@ -268,7 +268,8 @@ fn main() {
             sync_web_memories,
             search_memories,
             add_web_memory,
-            update::check_update
+            update::check_update,
+            update::get_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1108,3 +1108,108 @@ body.modal-open .app-body {
 .update-actions {
   margin-top: 18px;
 }
+
+/* ===== 顶栏下拉菜单 ===== */
+.topbar-menu {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  z-index: 50;
+  min-width: 148px;
+  padding: 6px;
+  border-radius: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.topbar-menu[hidden] {
+  display: none;
+}
+
+.topbar-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.topbar-menu-item:hover {
+  background: var(--sidebar-bg);
+}
+
+/* ===== 关于弹窗 ===== */
+.about-modal {
+  width: 420px;
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 16px;
+}
+
+.about-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 11px;
+  object-fit: contain;
+}
+
+.about-id {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.about-name {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.about-tagline {
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+
+.about-update-banner {
+  padding: 9px 12px;
+  margin: 4px 0 14px;
+  border-radius: 9px;
+  background: rgba(93, 108, 255, 0.12);
+  border: 1px solid rgba(93, 108, 255, 0.32);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.about-update-banner[hidden] {
+  display: none;
+}
+
+.about-update-banner b {
+  color: var(--accent);
+}
+
+.about-links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 16px;
+}
+
+.about-links .link-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  border-radius: 7px;
+}

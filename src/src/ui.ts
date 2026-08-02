@@ -10,6 +10,8 @@ let modelSelect: HTMLSelectElement;
 let memoryToggle: HTMLInputElement;
 let thinkToggle: HTMLInputElement;
 let settingsModal: HTMLElement;
+let aboutModal: HTMLElement;
+let topbarMenu: HTMLElement;
 let apiKeyInput: HTMLInputElement;
 let themeSelect: HTMLSelectElement;
 let sendBtn: HTMLButtonElement;
@@ -21,6 +23,10 @@ let memoryNewInput: HTMLTextAreaElement;
 let updateModal: HTMLElement;
 /** 当前待处理的更新信息（弹窗上的按钮要用） */
 let pendingUpdate: UpdateInfo | null = null;
+/** 关于弹窗里检查到的新版本（banner 上的「查看更新」要用） */
+let aboutPendingUpdate: UpdateInfo | null = null;
+/** 当前软件版本号（来自 Rust cargo 版本），关于弹窗展示用 */
+let appVersion = "";
 
 const MODELS = [
   { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
@@ -67,6 +73,8 @@ export async function initUI() {
   memoryToggle = document.getElementById("memory-toggle") as HTMLInputElement;
   thinkToggle = document.getElementById("think-toggle") as HTMLInputElement;
   settingsModal = document.getElementById("settings-modal")!;
+  aboutModal = document.getElementById("about-modal")!;
+  topbarMenu = document.getElementById("topbar-menu")!;
   apiKeyInput = document.getElementById("api-key-input") as HTMLInputElement;
   themeSelect = document.getElementById("theme-select") as HTMLSelectElement;
   sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
@@ -103,15 +111,26 @@ export async function initUI() {
   themeSelect.addEventListener("change", () => store.setTheme(themeSelect.value));
   document.getElementById("tab-web")!.addEventListener("click", () => void switchMode("web"));
   document.getElementById("tab-api")!.addEventListener("click", () => void switchMode("api"));
-  // 顶栏按钮：记忆库 / 设置
+  // 顶栏按钮：记忆库 / 菜单（设置·关于）
   document.getElementById("memory-btn")!.addEventListener("click", () => void openMemory());
-  document.getElementById("settings-btn")!.addEventListener("click", () => openSettings());
+  document.getElementById("menu-btn")!.addEventListener("click", (e) => {
+    e.stopPropagation();
+    topbarMenu.hidden = !topbarMenu.hidden;
+  });
+  // 点击菜单外部关闭
+  document.addEventListener("click", (e) => {
+    if (topbarMenu.hidden) return;
+    const t = e.target as HTMLElement;
+    if (!topbarMenu.contains(t) && t.id !== "menu-btn") topbarMenu.hidden = true;
+  });
   // 网页模式里注入的「📚 编辑记忆库」按钮会经 Rust 派发这个事件，由本地 UI 打开弹窗
   window.addEventListener("dsondt:open-memory", () => void openMemory());
   // Esc 关闭当前打开的模态框
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (!updateModal.hidden) closeUpdate();
+      if (!topbarMenu.hidden) topbarMenu.hidden = true;
+      else if (!updateModal.hidden) closeUpdate();
+      else if (!aboutModal.hidden) closeAbout();
       else if (!settingsModal.hidden) closeSettings();
       else if (!memoryModal.hidden) closeMemory();
     }
@@ -121,7 +140,27 @@ export async function initUI() {
   document.getElementById("get-key-btn")!.addEventListener("click", () => void openKeyPage());
   document.getElementById("promo-dealv-btn")!.addEventListener("click", () => void api.openUrl("https://dealv.cn"));
   document.getElementById("promo-squirrel-btn")!.addEventListener("click", () => void api.openUrl("https://github.com/wolfprince12/squirrel-Panel"));
-  document.getElementById("check-update-btn")!.addEventListener("click", () => void manualCheckUpdate());
+  // 顶栏菜单项
+  document.getElementById("menu-settings")!.addEventListener("click", () => {
+    topbarMenu.hidden = true;
+    void openSettings();
+  });
+  document.getElementById("menu-about")!.addEventListener("click", () => {
+    topbarMenu.hidden = true;
+    void openAbout();
+  });
+  // 关于弹窗
+  document.getElementById("about-close")!.addEventListener("click", () => closeAbout());
+  document.getElementById("about-check-update-btn")!.addEventListener("click", () => void manualCheckUpdateAbout());
+  document.getElementById("about-update-go")!.addEventListener("click", () => {
+    if (aboutPendingUpdate) showUpdate(aboutPendingUpdate);
+  });
+  document.getElementById("about-github-btn")!.addEventListener("click", () =>
+    void api.openUrl("https://github.com/wolfprince12/DSonDT"),
+  );
+  document.getElementById("about-release-btn")!.addEventListener("click", () =>
+    void api.openUrl("https://github.com/wolfprince12/DSonDT/releases"),
+  );
   document.getElementById("update-later")!.addEventListener("click", () => closeUpdate());
   document.getElementById("update-skip")!.addEventListener("click", () => {
     if (pendingUpdate) localStorage.setItem(SKIP_VERSION_KEY, pendingUpdate.latest);
@@ -187,6 +226,33 @@ export async function initUI() {
     newChat();
   }
 
+  // 取当前版本号（关于弹窗展示用）
+  try {
+    appVersion = await api.getVersion();
+  } catch {
+    /* 浏览器预览：无 Tauri runtime，忽略 */
+  }
+
+  // 开发预览：#about / #about-update 用假数据打开关于弹窗，便于截图核对样式
+  if (window.location.hash.startsWith("#about")) {
+    setTimeout(() => {
+      openAbout();
+      if (window.location.hash === "#about-update") {
+        aboutPendingUpdate = demoUpdateInfo(false);
+        document.getElementById("about-update-ver")!.textContent = `v${aboutPendingUpdate.latest}`;
+        document.getElementById("about-update-banner")!.hidden = false;
+      }
+    }, 100);
+    return;
+  }
+  // 开发预览：#menu 展开顶栏下拉菜单，便于截图核对
+  if (window.location.hash === "#menu") {
+    setTimeout(() => {
+      topbarMenu.hidden = false;
+    }, 100);
+    return;
+  }
+
   // 开发预览：URL hash 为 #settings 时自动打开设置弹窗（便于浏览器/Chrome headless 截屏验证）
   if (window.location.hash === "#settings") {
     setTimeout(() => openSettings(), 100);
@@ -215,7 +281,11 @@ function template(): string {
       </div>
       <span class="spacer"></span>
       <button id="memory-btn" class="topbar-icon-btn" title="记忆库">🧠</button>
-      <button id="settings-btn" class="topbar-icon-btn" title="设置">⚙</button>
+      <button id="menu-btn" class="topbar-icon-btn" title="菜单">⚙</button>
+      <div class="topbar-menu" id="topbar-menu" hidden>
+        <button class="topbar-menu-item" id="menu-settings">⚙️ 设置</button>
+        <button class="topbar-menu-item" id="menu-about">ℹ️ 关于</button>
+      </div>
     </header>
     <div class="app-body">
       <aside class="sidebar">
@@ -260,10 +330,36 @@ function template(): string {
       <div class="key-status" id="key-status"></div>
       <button id="get-key-btn" class="link-btn">去 DeepSeek 获取 API Key ↗</button>
 
+      <div class="modal-actions">
+        <button id="settings-cancel" class="ghost-btn">取消</button>
+        <button id="settings-save" class="send-btn" style="width:auto;padding:0 18px;height:36px;">保存</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-mask" id="about-modal" hidden>
+    <div class="modal about-modal">
+      <div class="about-head">
+        <img src="/logo.png" class="about-logo" alt="DSonDT" />
+        <div class="about-id">
+          <div class="about-name">DSonDT</div>
+          <div class="about-tagline">DeepSeek on Desktop · 本地 DeepSeek 桌面客户端</div>
+        </div>
+      </div>
+
       <div class="version-row">
-        <span class="version-label" id="version-label">版本 —</span>
-        <button id="check-update-btn" class="link-btn">检查更新</button>
-        <span class="version-status" id="version-status"></span>
+        <span class="version-label" id="about-version-label">版本 —</span>
+        <button id="about-check-update-btn" class="link-btn">检查更新</button>
+        <span class="version-status" id="about-version-status"></span>
+      </div>
+
+      <div class="update-net about-update-banner" id="about-update-banner" hidden>
+        发现新版本 <b id="about-update-ver"></b>，点击查看下载。
+        <button id="about-update-go" class="link-btn">查看更新 ↗</button>
+      </div>
+
+      <div class="about-links">
+        <button id="about-github-btn" class="link-btn">GitHub 仓库 ↗</button>
+        <button id="about-release-btn" class="link-btn">更新日志 ↗</button>
       </div>
 
       <div class="promo-section">
@@ -302,8 +398,7 @@ function template(): string {
       </div>
 
       <div class="modal-actions">
-        <button id="settings-cancel" class="ghost-btn">取消</button>
-        <button id="settings-save" class="send-btn" style="width:auto;padding:0 18px;height:36px;">保存</button>
+        <button id="about-close" class="ghost-btn">关闭</button>
       </div>
     </div>
   </div>
@@ -695,33 +790,6 @@ async function checkUpdateOnStartup() {
   showUpdate(info);
 }
 
-/** 设置页里的手动检查：与启动检查相反，无论结果如何都要给用户明确回执 */
-async function manualCheckUpdate() {
-  const status = document.getElementById("version-status")!;
-  const btn = document.getElementById("check-update-btn") as HTMLButtonElement;
-  btn.disabled = true;
-  status.textContent = "检查中…";
-  try {
-    const info = await api.checkUpdate();
-    document.getElementById("version-label")!.textContent = `版本 v${info.current}`;
-    if (!info.checked) {
-      status.textContent = "连不上更新服务器，请检查网络";
-    } else if (info.has_update) {
-      status.textContent = `发现新版本 v${info.latest}`;
-      // 手动检查视为用户主动关心，之前「跳过此版本」的记录作废
-      localStorage.removeItem(SKIP_VERSION_KEY);
-      closeSettings();
-      showUpdate(info);
-    } else {
-      status.textContent = "已是最新版本";
-    }
-  } catch {
-    status.textContent = "检查失败";
-  } finally {
-    btn.disabled = false;
-  }
-}
-
 function showUpdate(info: UpdateInfo) {
   pendingUpdate = info;
   document.getElementById("update-cur")!.textContent = `v${info.current}`;
@@ -770,6 +838,60 @@ function closeUpdate() {
   if (store.mode === "web") void api.setSuppressed(false);
 }
 
+// ---------- 关于弹窗 ----------
+
+function openAbout() {
+  // 网页模式下远程视图压在本地之上，弹窗前先把它藏起来，否则会被盖住。
+  if (store.mode === "web") void api.setSuppressed(true);
+  document.body.classList.add("modal-open");
+  aboutModal.hidden = false;
+  // 展示当前版本号
+  const label = document.getElementById("about-version-label");
+  if (label) label.textContent = `版本 v${appVersion || "—"}`;
+  // 清除上一次的检查结果，避免残留 banner
+  aboutPendingUpdate = null;
+  document.getElementById("about-update-banner")!.hidden = true;
+  const st = document.getElementById("about-version-status");
+  if (st) st.textContent = "";
+}
+
+function closeAbout() {
+  aboutModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  if (store.mode === "web") void api.setSuppressed(false);
+}
+
+/** 关于弹窗里的手动检查：与启动检查相反，无论结果如何都要给用户明确回执 */
+async function manualCheckUpdateAbout() {
+  const status = document.getElementById("about-version-status")!;
+  const btn = document.getElementById("about-check-update-btn") as HTMLButtonElement;
+  const label = document.getElementById("about-version-label")!;
+  label.textContent = `版本 v${appVersion || "—"}`;
+  btn.disabled = true;
+  status.textContent = "检查中…";
+  document.getElementById("about-update-banner")!.hidden = true;
+  aboutPendingUpdate = null;
+  try {
+    const info = await api.checkUpdate();
+    if (!info.checked) {
+      status.textContent = "连不上更新服务器，请检查网络";
+    } else if (info.has_update) {
+      status.textContent = `发现新版本 v${info.latest}`;
+      // 手动检查视为用户主动关心，之前「跳过此版本」的记录作废
+      localStorage.removeItem(SKIP_VERSION_KEY);
+      aboutPendingUpdate = info;
+      document.getElementById("about-update-ver")!.textContent = `v${info.latest}`;
+      document.getElementById("about-update-banner")!.hidden = false;
+    } else {
+      status.textContent = "已是最新版本";
+    }
+  } catch {
+    status.textContent = "检查失败";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /** 把 Markdown 版发布说明压成弹窗能直接显示的纯文本 */
 function cleanNotes(md: string): string {
   return md
@@ -799,8 +921,8 @@ function demoUpdateInfo(mirror: boolean): UpdateInfo {
   return {
     checked: true,
     has_update: true,
-    current: "0.3.3",
-    latest: "0.3.4",
+    current: "0.3.4",
+    latest: "0.3.5",
     github_reachable: !mirror,
     download_url: mirror ? mirrors[0]! : official,
     mirror_urls: mirrors,

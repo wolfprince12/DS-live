@@ -29,6 +29,8 @@ export const api = {
   syncWebMemories: () => invoke<void>("sync_web_memories"),
   /** 启动时检查新版本（含 GitHub 可达性探测），失败不抛给用户 */
   checkUpdate: () => invoke<UpdateInfo>("check_update"),
+  /** 当前安装版本号（来自 Cargo.toml），不联网 */
+  getVersion: () => invoke<string>("get_version"),
   chat: (
     conversationId: number,
     content: string,
