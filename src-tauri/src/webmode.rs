@@ -182,8 +182,8 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     tauri::WebviewWindowBuilder::new(app, WEB_WEBVIEW, WebviewUrl::External(url))
         .title("DSonDT · DeepSeek")
         .decorations(false)
-        .inner_size(tauri::LogicalSize::new(w, h))
-        .position(tauri::LogicalPosition::new(x + w + 8.0, y))
+        .inner_size(w, h)
+        .position(x + w + 8.0, y)
         .initialization_script(&inject_script(memories_json))
         .build()
         .map_err(|e| format!("创建 deepseek 窗口失败：{e}"))?;
