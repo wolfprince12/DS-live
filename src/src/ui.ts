@@ -11,7 +11,6 @@ let memoryToggle: HTMLInputElement;
 let thinkToggle: HTMLInputElement;
 let settingsModal: HTMLElement;
 let aboutModal: HTMLElement;
-let topbarMenu: HTMLElement;
 let apiKeyInput: HTMLInputElement;
 let themeSelect: HTMLSelectElement;
 let sendBtn: HTMLButtonElement;
@@ -74,7 +73,6 @@ export async function initUI() {
   thinkToggle = document.getElementById("think-toggle") as HTMLInputElement;
   settingsModal = document.getElementById("settings-modal")!;
   aboutModal = document.getElementById("about-modal")!;
-  topbarMenu = document.getElementById("topbar-menu")!;
   apiKeyInput = document.getElementById("api-key-input") as HTMLInputElement;
   themeSelect = document.getElementById("theme-select") as HTMLSelectElement;
   sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
@@ -111,25 +109,16 @@ export async function initUI() {
   themeSelect.addEventListener("change", () => store.setTheme(themeSelect.value));
   document.getElementById("tab-web")!.addEventListener("click", () => void switchMode("web"));
   document.getElementById("tab-api")!.addEventListener("click", () => void switchMode("api"));
-  // 顶栏按钮：记忆库 / 菜单（设置·关于）
+  // 顶栏按钮：记忆库 / 设置 / 关于
   document.getElementById("memory-btn")!.addEventListener("click", () => void openMemory());
-  document.getElementById("menu-btn")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    topbarMenu.hidden = !topbarMenu.hidden;
-  });
-  // 点击菜单外部关闭
-  document.addEventListener("click", (e) => {
-    if (topbarMenu.hidden) return;
-    const t = e.target as HTMLElement;
-    if (!topbarMenu.contains(t) && t.id !== "menu-btn") topbarMenu.hidden = true;
-  });
+  document.getElementById("settings-btn")!.addEventListener("click", () => void openSettings());
+  document.getElementById("about-btn")!.addEventListener("click", () => void openAbout());
   // 网页模式里注入的「📚 编辑记忆库」按钮会经 Rust 派发这个事件，由本地 UI 打开弹窗
   window.addEventListener("dsondt:open-memory", () => void openMemory());
   // Esc 关闭当前打开的模态框
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (!topbarMenu.hidden) topbarMenu.hidden = true;
-      else if (!updateModal.hidden) closeUpdate();
+      if (!updateModal.hidden) closeUpdate();
       else if (!aboutModal.hidden) closeAbout();
       else if (!settingsModal.hidden) closeSettings();
       else if (!memoryModal.hidden) closeMemory();
@@ -140,15 +129,7 @@ export async function initUI() {
   document.getElementById("get-key-btn")!.addEventListener("click", () => void openKeyPage());
   document.getElementById("promo-dealv-btn")!.addEventListener("click", () => void api.openUrl("https://dealv.cn"));
   document.getElementById("promo-squirrel-btn")!.addEventListener("click", () => void api.openUrl("https://github.com/wolfprince12/squirrel-Panel"));
-  // 顶栏菜单项
-  document.getElementById("menu-settings")!.addEventListener("click", () => {
-    topbarMenu.hidden = true;
-    void openSettings();
-  });
-  document.getElementById("menu-about")!.addEventListener("click", () => {
-    topbarMenu.hidden = true;
-    void openAbout();
-  });
+  // 顶栏菜单项（已拆为独立按钮，菜单下拉取消）
   // 关于弹窗
   document.getElementById("about-close")!.addEventListener("click", () => closeAbout());
   document.getElementById("about-check-update-btn")!.addEventListener("click", () => void manualCheckUpdateAbout());
@@ -245,14 +226,6 @@ export async function initUI() {
     }, 100);
     return;
   }
-  // 开发预览：#menu 展开顶栏下拉菜单，便于截图核对
-  if (window.location.hash === "#menu") {
-    setTimeout(() => {
-      topbarMenu.hidden = false;
-    }, 100);
-    return;
-  }
-
   // 开发预览：URL hash 为 #settings 时自动打开设置弹窗（便于浏览器/Chrome headless 截屏验证）
   if (window.location.hash === "#settings") {
     setTimeout(() => openSettings(), 100);
@@ -281,11 +254,8 @@ function template(): string {
       </div>
       <span class="spacer"></span>
       <button id="memory-btn" class="topbar-icon-btn" title="记忆库">🧠</button>
-      <button id="menu-btn" class="topbar-icon-btn" title="菜单">⚙</button>
-      <div class="topbar-menu" id="topbar-menu" hidden>
-        <button class="topbar-menu-item" id="menu-settings">⚙️ 设置</button>
-        <button class="topbar-menu-item" id="menu-about">ℹ️ 关于</button>
-      </div>
+      <button id="settings-btn" class="topbar-icon-btn" title="设置">⚙</button>
+      <button id="about-btn" class="topbar-icon-btn" title="关于 DSonDT">ℹ</button>
     </header>
     <div class="app-body">
       <aside class="sidebar">
