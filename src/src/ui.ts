@@ -55,9 +55,11 @@ function enableDrag(selector: string) {
 }
 
 export async function initUI() {
-  // —— 诊断浮层 ——
+  // —— 诊断浮层（可折叠）——
   // Windows 虚拟机里没法开 DevTools，这里把任何未捕获的 JS 报错 / Promise 拒绝
-  // 显示到屏幕顶部红条，方便盲调。pointer-events:none 保证它自己不挡点击。
+  // 显示到屏幕浮层，方便盲调。
+  // 设计：默认**完全隐藏**，Ctrl+D 展开/收起；展开时浮层缩在屏幕右下角 480×140，
+  // pointer-events:none 保证它自己不挡任何 modal 的点击。
   const diagBox = document.createElement("div");
   diagBox.id = "diag-box";
   diagBox.style.cssText =
@@ -66,11 +68,25 @@ export async function initUI() {
     "padding:6px 8px;white-space:pre-wrap;pointer-events:none;z-index:2147483647;" +
     "border:1px solid #ff7070;border-radius:6px;display:none;";
   document.body.appendChild(diagBox);
+  let diagVisible = false;
   const pushDiag = (msg: string) => {
-    diagBox.style.display = "block";
-    diagBox.textContent += msg + "\n";
-    diagBox.scrollTop = diagBox.scrollHeight;
+    if (diagVisible) {
+      diagBox.style.display = "block";
+      diagBox.textContent += msg + "\n";
+      diagBox.scrollTop = diagBox.scrollHeight;
+    }
+    // 始终在 console 留一份，浮层隐藏时也能从 DevTools / Edge remote debug 看到
+    // eslint-disable-next-line no-console
+    console.log(msg);
   };
+  // Ctrl/Cmd+D 切换浮层显隐
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+      e.preventDefault();
+      diagVisible = !diagVisible;
+      diagBox.style.display = diagVisible ? "block" : "none";
+    }
+  });
   window.addEventListener("error", (e) =>
     pushDiag(`[error] ${e.message}${e.filename ? ` @ ${e.filename}:${e.lineno}` : ""}`),
   );
@@ -81,7 +97,9 @@ export async function initUI() {
   );
   // —— IPC 入口探测 ——
   // 部分 Windows WebView2 上原生层只注入了 __TAURI_INTERNALS__.plugins（plugin 命令），
-  // 但没注入 .invoke（自定义命令）。把真入口直接打到红条，方便定位。
+  // 但没注入 .invoke（自定义命令）。把真入口直接打到 console，方便定位。
+  // 同时把 __TAURI_INTERNALS__.invoke / __TAURI__.core.invoke 的 wrapper 装上，
+  // 一旦 invoke 失败立刻能看到原因。
   try {
     const w = window as any;
     const probe = (name: string, v: any) =>
@@ -92,9 +110,60 @@ export async function initUI() {
     probe("window.__TAURI__.core.invoke", w.__TAURI__?.core?.invoke);
     const ua = (navigator.userAgent || "").slice(0, 120);
     pushDiag(`[probe] UA = ${ua}`);
+    // 包装 invoke：把每一次调用打到红条（即使浮层隐藏，console 也有记录）
+    const wrapInvoke = (label: string, fn: any) => {
+      if (typeof fn !== "function") return;
+      const w2 = label.startsWith("__TAURI__") ? w.__TAURI__.core : w.__TAURI_INTERNALS__;
+      const isGlobal = label.startsWith("__TAURI__");
+      const setObj = () => {
+        if (isGlobal) w.__TAURI__.core = w2;
+        else w.__TAURI_INTERNALS__ = w2;
+      };
+      w2.invoke = function (cmd: string, args: any) {
+        pushDiag(`[inv→] ${cmd}`);
+        try {
+          const r = fn.call(this, cmd, args);
+          if (r && typeof r.then === "function") {
+            return r.then(
+              (v: any) => {
+                pushDiag(`[inv✓] ${cmd}`);
+                return v;
+              },
+              (e: any) => {
+                pushDiag(`[inv✗] ${cmd}: ${String(e?.message || e)}`);
+                throw e;
+              },
+            );
+          }
+          pushDiag(`[inv✓sync] ${cmd}`);
+          return r;
+        } catch (e) {
+          pushDiag(`[inv✗sync] ${cmd}: ${String((e as any)?.message || e)}`);
+          throw e;
+        }
+      };
+      setObj();
+      pushDiag(`[probe] wrapped ${label}.invoke`);
+    };
+    wrapInvoke("__TAURI_INTERNALS__", w.__TAURI_INTERNALS__?.invoke);
+    wrapInvoke("__TAURI__", w.__TAURI__?.core?.invoke);
   } catch (e) {
     pushDiag(`[probe] THREW: ${String((e as any)?.message || e)}`);
   }
+  // —— 关键 click handler 入口日志 ——
+  // 一旦 [hnd] 行出现在 console（即使浮层隐藏），就能确认 click handler 是否真的被调到。
+  // 仅在 document 捕获阶段挂一层轻量 listener，开销忽略不计。
+  document.addEventListener(
+    "click",
+    (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t || !t.tagName) return;
+      pushDiag(
+        `[click] ${t.tagName}#${t.id || ""}.${(t.className || "").toString().slice(0, 32)}`,
+      );
+    },
+    true,
+  );
 
   const app = document.getElementById("app")!;
   app.innerHTML = template();

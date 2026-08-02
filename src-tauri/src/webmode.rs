@@ -25,10 +25,13 @@ pub const TOP_BAR_H: f64 = 48.0;
 
 /// 当前模式状态。`active` 表示是否在网页模式；`suppressed` 表示本地要弹模态，
 /// 需要临时把网页视图藏起来。
+/// `last_memories` 缓存最近一次进入网页模式时的记忆 JSON，供 modal 关闭后重建子视图使用
+/// （避免 WebView2 上 hide()/show() 不可靠时 deepseek 仍遮在主 webview 之上挡 modal）。
 #[derive(Default)]
 pub struct WebStateInner {
     pub active: bool,
     pub suppressed: bool,
+    pub last_memories: String,
 }
 
 #[derive(Clone, Default)]
@@ -92,6 +95,8 @@ pub fn relayout(window: &Window) {
 /// 已知有 capability 坑，issue #10298/#10317），更稳。
 pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     let state = app.state::<WebState>();
+    // 缓存记忆 JSON，供 modal 关闭后重建子视图用
+    state.0.lock().unwrap().last_memories = memories_json.to_string();
     if state.is_active() {
         if state.is_suppressed() {
             set_suppressed(app, false);
@@ -178,17 +183,31 @@ pub fn is_active(app: &AppHandle) -> bool {
 }
 
 /// 临时隐藏 / 恢复 deepseek 视图（用于本地弹模态）。
+/// 设计：suppressed=true 时**直接关闭**子视图（而非 hide），避免 WebView2 上 hide() 不可靠
+/// 导致 deepseek 仍 z-order 在主 webview 之上盖住 modal；suppressed=false 时如果之前 active
+/// 且 last_memories 非空，自动用缓存的记忆重建子视图（用户切回网页模式看到的还是同一份记忆）。
 pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
     let state = app.state::<WebState>();
+    // 在改状态前先快照"进入此函数时是否处于 active 网页模式"
+    let prev_active = state.is_active();
+    let last_memories = state.0.lock().unwrap().last_memories.clone();
     state.set_suppressed(suppressed);
-    if !state.is_active() {
+
+    if suppressed {
+        // 不管 active 与否都尝试关闭（防御性，避免 WebView2 上残留旧 webview 抢 z-order）
+        if let Some(w) = app.get_webview(WEB_WEBVIEW) {
+            let _ = w.close();
+        }
+        // 关闭后视作 active=false（webview 真的没了）
+        state.set_active(false);
         return;
     }
-    if let Some(w) = app.get_webview(WEB_WEBVIEW) {
-        if suppressed {
-            let _ = w.hide();
-        } else {
-            let _ = w.show();
+
+    // suppressed=false：仅当之前 active 且有缓存记忆时，才重建子视图
+    if prev_active && !last_memories.is_empty() && last_memories != "[]" {
+        // activate 内部已经有"已 active 则 return"的短路
+        if let Err(e) = activate(app, &last_memories) {
+            eprintln!("[webmode] 重建 deepseek 子视图失败：{e}");
         }
     }
 }
