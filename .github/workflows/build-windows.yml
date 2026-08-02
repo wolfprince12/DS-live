@@ -12,6 +12,9 @@ jobs:
   windows:
     name: Build DSonDT for Windows
     runs-on: windows-latest
+    # GITHUB_TOKEN 默认无 releases:write，必须显式授予，否则软发布 step 会 403
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
