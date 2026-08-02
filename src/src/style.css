@@ -1147,48 +1147,80 @@ body.modal-open .app-body {
 
 /* ===== 关于弹窗 ===== */
 .about-modal {
-  width: 420px;
+  width: 600px;
+  padding: 20px 22px 18px;
+  max-height: min(560px, calc(100vh - 80px));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .about-head {
   display: flex;
   align-items: center;
-  gap: 13px;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .about-logo {
-  width: 46px;
-  height: 46px;
-  border-radius: 11px;
+  width: 56px;
+  height: 56px;
+  border-radius: 13px;
   object-fit: contain;
+  flex: none;
+  background: var(--sidebar-bg);
+  padding: 4px;
 }
 
 .about-id {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
 .about-name {
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .about-tagline {
   font-size: 12.5px;
   color: var(--text-soft);
+  line-height: 1.4;
+}
+
+.about-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.about-head-actions .link-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  border-radius: 7px;
+  white-space: nowrap;
 }
 
 .about-update-banner {
   padding: 9px 12px;
-  margin: 4px 0 14px;
+  margin: 0 0 12px;
   border-radius: 9px;
   background: rgba(93, 108, 255, 0.12);
   border: 1px solid rgba(93, 108, 255, 0.32);
   color: var(--text);
   font-size: 12.5px;
   line-height: 1.6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .about-update-banner[hidden] {
@@ -1197,19 +1229,182 @@ body.modal-open .app-body {
 
 .about-update-banner b {
   color: var(--accent);
+  font-weight: 700;
+}
+
+.about-update-banner .spacer {
+  flex: 1;
+}
+
+.about-update-banner .link-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+
+.about-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--sidebar-bg);
+  margin-bottom: 12px;
+}
+
+.about-author-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5b6cff, #8b9bff);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex: none;
+}
+
+.about-author-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.about-author-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.about-author-title {
+  font-size: 11.5px;
+  color: var(--text-soft);
+  line-height: 1.3;
+}
+
+.about-products-heading {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-soft);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+
+.about-products {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* 第一个作品卡（爻知云）跨两列，单独占满第一行 */
+.about-products > .about-product:first-child {
+  grid-column: 1 / -1;
+}
+
+.about-product {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.about-product-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about-product-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.about-product-qr {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  background: #fff;
+  padding: 3px;
+  flex: none;
+}
+
+.about-product:hover {
+  border-color: var(--accent);
+  background: var(--card-hover, var(--sidebar-bg));
+}
+
+.about-product-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #fff;
+  flex: none;
+}
+
+.about-product-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.about-product-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--sidebar-bg);
+  color: var(--text-soft);
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+.about-product-desc {
+  font-size: 11.5px;
+  color: var(--text-soft);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.about-product .link-btn {
+  width: auto;
+  margin-top: 0;
+  align-self: flex-start;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  border-radius: 6px;
 }
 
 .about-links {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin: 4px 0 16px;
+  margin-right: auto;
 }
 
 .about-links .link-btn {
   width: auto;
   margin-top: 0;
   padding: 5px 12px;
-  font-size: 12.5px;
+  font-size: 12px;
   border-radius: 7px;
 }

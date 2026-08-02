@@ -344,60 +344,63 @@ function template(): string {
           <div class="about-name">DSonDT</div>
           <div class="about-tagline">DeepSeek on Desktop · 本地 DeepSeek 桌面客户端</div>
         </div>
+        <div class="about-head-actions">
+          <button id="about-check-update-btn" class="link-btn">检查更新</button>
+        </div>
       </div>
 
-      <div class="version-row">
+      <div class="version-row" style="border-top:none;padding-top:0;margin-top:0;">
         <span class="version-label" id="about-version-label">版本 —</span>
-        <button id="about-check-update-btn" class="link-btn">检查更新</button>
         <span class="version-status" id="about-version-status"></span>
       </div>
 
       <div class="update-net about-update-banner" id="about-update-banner" hidden>
-        发现新版本 <b id="about-update-ver"></b>，点击查看下载。
-        <button id="about-update-go" class="link-btn">查看更新 ↗</button>
+        <span>发现新版本 <b id="about-update-ver"></b></span>
+        <span class="spacer"></span>
+        <button id="about-update-go" class="link-btn">立即更新 ↗</button>
       </div>
 
-      <div class="about-links">
-        <button id="about-github-btn" class="link-btn">GitHub 仓库 ↗</button>
-        <button id="about-release-btn" class="link-btn">更新日志 ↗</button>
+      <div class="about-author">
+        <div class="about-author-avatar">大</div>
+        <div class="about-author-meta">
+          <div class="about-author-name">Mr大狼</div>
+          <div class="about-author-title">导演 / 制作人 / AI 产品创作者 · 20 余年跨界经验</div>
+        </div>
       </div>
 
-      <div class="promo-section">
-        <div class="promo-heading">开发者</div>
-        <div class="promo-card promo-author">
-          <div class="promo-author-name">Mr大狼</div>
-          <div class="promo-author-title">导演 / 制作人 / AI 产品创作者</div>
-          <div class="promo-author-desc">20 余年影视传媒与演出制作经验，现用 AI 把经验激烈跨界重构成产品。</div>
-        </div>
-
-        <div class="promo-heading">更多作品</div>
-        <div class="promo-card">
-          <div class="promo-card-icon" style="background:#1aad19">💬</div>
-          <div class="promo-card-meta">
-            <div class="promo-card-title">爻知云 AI <span class="promo-tag">微信服务号</span></div>
-            <div class="promo-card-desc">关注获取 AI 创作助手、工作流技巧与项目动态。</div>
-            <img class="promo-card-qr" src="/yiaozhiyun-qr.png" alt="爻知云 AI 微信搜一搜二维码" />
+      <div class="about-products-heading">更多作品</div>
+      <div class="about-products">
+        <div class="about-product">
+          <div class="about-product-top">
+            <div class="about-product-icon" style="background:#1aad19">💬</div>
+            <div class="about-product-name">爻知云 AI <span class="about-product-tag">微信服务号</span></div>
+            <img class="about-product-qr" src="/yiaozhiyun-qr.png" alt="爻知云 AI 微信搜一搜二维码" />
           </div>
+          <div class="about-product-desc">关注公众号获取 AI 创作助手、工作流技巧与项目动态。</div>
         </div>
-        <div class="promo-card">
-          <div class="promo-card-icon" style="background:#5b6cff">📄</div>
-          <div class="promo-card-meta">
-            <div class="promo-card-title">DealV <span class="promo-tag">AI 智能合同管理</span></div>
-            <div class="promo-card-desc">面向专业人群的合同智能审查与管理平台。</div>
-            <button id="promo-dealv-btn" class="promo-card-btn">访问 DealV ↗</button>
+        <div class="about-product">
+          <div class="about-product-top">
+            <div class="about-product-icon" style="background:#5b6cff">📄</div>
+            <div class="about-product-name">DealV <span class="about-product-tag">AI 智能合同</span></div>
           </div>
+          <div class="about-product-desc">面向专业人群的合同智能审查与管理平台。</div>
+          <button id="promo-dealv-btn" class="link-btn">访问 DealV ↗</button>
         </div>
-        <div class="promo-card">
-          <div class="promo-card-icon" style="background:#e8a33d">⌨</div>
-          <div class="promo-card-meta">
-            <div class="promo-card-title">鼠须管控制面板 <span class="promo-tag">开源项目</span></div>
-            <div class="promo-card-desc">超级实用的第三方鼠须管输入法配置工具。</div>
-            <button id="promo-squirrel-btn" class="promo-card-btn">查看鼠须管控制面板 ↗</button>
+        <div class="about-product">
+          <div class="about-product-top">
+            <div class="about-product-icon" style="background:#e8a33d">⌨</div>
+            <div class="about-product-name">鼠须管控制面板 <span class="about-product-tag">开源</span></div>
           </div>
+          <div class="about-product-desc">超级实用的第三方鼠须管输入法配置工具。</div>
+          <button id="promo-squirrel-btn" class="link-btn">查看项目 ↗</button>
         </div>
       </div>
 
       <div class="modal-actions">
+        <div class="about-links">
+          <button id="about-github-btn" class="link-btn">GitHub 仓库 ↗</button>
+          <button id="about-release-btn" class="link-btn">更新日志 ↗</button>
+        </div>
         <button id="about-close" class="ghost-btn">关闭</button>
       </div>
     </div>
