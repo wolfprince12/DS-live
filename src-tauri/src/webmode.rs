@@ -1,38 +1,45 @@
-//! # 单窗口双模式（macOS / Windows 通用）
+//! # 单窗口双模式（macOS / Windows 通用核心约束）
 //!
-//! API 模式 = 主窗口的「主 webview」即本地 UI（铺满，含顶栏 + 侧栏 + 聊天区）。
-//! 网页模式 = 在主窗口之上叠出 `deepseek` 这个子 webview，占据顶栏下方的整幅区域。
+//! **硬性要求：网页模式与 API 模式必须共处同一个 OS 窗口**（最早 mac 版就定下的铁律，
+//! 绝不允许为网页模式单独开第二个窗口）。两种平台只是「在同一窗口内如何呈现 DeepSeek」不同：
 //!
-//! 用 Tauri 2 `unstable` 的 `Window::add_child` 把 deepseek 叠加到主 webview 之上，二者共处一个窗口
-//! （macOS 下是同一个 NSWindow；Windows 下是同一个父窗口 HWND 上的 WebView2 子视图），行为一致。
-//! 顶栏由主 webview 顶部 48px 自己画，`deepseek` webview 用 `LogicalPosition(0, 48)` 摆在它下面。
+//! - **macOS / Linux**：用 Tauri 2 `Window::add_child` 在主窗口之上叠加一个 `deepseek` 子 webview，
+//!   占据顶栏下方的整块区域。WKWebView 下 z-order 可控，叠加子视图不会吞掉主 webview 的点击。
+//! - **Windows**：WebView2 的渲染面永远压在顶层（DirectX 合成，Tauri issue #6264），
+//!   `add_child` 子视图会盖住整个父窗口、吞掉所有点击，不可用。因此 Windows 改为
+//!   **直接把主 webview 导航到 chat.deepseek.com**：仍是同一个窗口、同一个 webview，
+//!   只是里面加载的页面在「本地 UI」和「DeepSeek」之间切换。记忆注入脚本在 deepseek 域名下
+//!   自动挂 🧠 / 💬 按钮，💬 返回即把主 webview 导航回本地首页。
 //!
-//! 重要：`-webkit-app-region: drag` 只在「主 webview」上生效，子 webview 上会被系统无视；
-//! 因此本地 UI 必须是主 webview，deepseek 才是叠加的子视图（这是鼠标拖动能生效的前提）。
-//! 拖动统一通过 JS `getCurrentWindow().startDragging()` 触发，对 macOS / Windows 均可靠。
+//! 顶栏由主 webview 顶部 48px 自己画；`-webkit-app-region: drag` 只在主 webview 生效，
+//! 因此本地 UI 必须是主 webview。拖动统一通过 JS `getCurrentWindow().startDragging()`。
 
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, WebviewUrl, Window};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, Window};
 #[cfg(not(target_os = "windows"))]
 use tauri::WebviewBuilder;
 
 pub const MAIN_WINDOW: &str = "main";
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub const WEB_WEBVIEW: &str = "deepseek";
 
 /// 必须与 style.css 里 `.app-topbar { height: 48px }` 保持一致。
-/// （仅 macOS / Linux 的「同窗叠加子 webview」方案用得到；Windows 走独立窗口。）
+/// （仅 macOS / Linux 的「同窗叠加子 webview」方案用得到；Windows 走主 webview 直接导航。）
 #[cfg_attr(target_os = "windows", allow(dead_code))]
 pub const TOP_BAR_H: f64 = 48.0;
 
 /// 当前模式状态。`active` 表示是否在网页模式；`suppressed` 表示本地要弹模态，
-/// 需要临时把网页视图藏起来。
-/// `last_memories` 缓存最近一次进入网页模式时的记忆 JSON，供 modal 关闭后重建子视图使用
-/// （避免 WebView2 上 hide()/show() 不可靠时 deepseek 仍遮在主 webview 之上挡 modal）。
+/// 需要临时把网页视图藏起来（仅 macOS / Linux 的叠加子视图方案用到）。
 #[derive(Default)]
 pub struct WebStateInner {
     pub active: bool,
     pub suppressed: bool,
-    pub last_memories: String,
+    /// 本地首页 URL（主 webview 初始加载的本地地址），Windows 网页模式返回时导航回它。
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub home_url: String,
+    /// Windows 专用：用户从 DeepSeek 点「💬 返回」后，Rust 把主 webview 导回本地首页并重载，
+    /// 重载瞬间 store.mode 仍读 localStorage 的旧值 'web'，用这个标志纠正回 'api'。
+    pub pending_api: bool,
 }
 
 #[derive(Clone, Default)]
@@ -51,6 +58,25 @@ impl WebState {
     }
     pub fn set_suppressed(&self, v: bool) {
         self.0.lock().unwrap().suppressed = v;
+    }
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub fn home_url(&self) -> String {
+        self.0.lock().unwrap().home_url.clone()
+    }
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub fn set_home_url(&self, v: String) {
+        self.0.lock().unwrap().home_url = v;
+    }
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub fn set_pending_api(&self, v: bool) {
+        self.0.lock().unwrap().pending_api = v;
+    }
+    /// 读取并清空 pending_api（一次性消费，避免重复纠正）。
+    pub fn take_pending_api(&self) -> bool {
+        let mut g = self.0.lock().unwrap();
+        let v = g.pending_api;
+        g.pending_api = false;
+        v
     }
 }
 
@@ -84,7 +110,8 @@ pub fn relayout(window: &Window) {
         return;
     }
 
-    // Windows 上网页模式是独立窗口，不由 relayout 管理；仅 macOS / Linux 需要同步子 webview 位置。
+    // Windows 网页模式是「主 webview 直接导航到 DeepSeek」（无叠加子视图），无需 relayout 同步；
+    // 仅 macOS / Linux 需要同步子 webview 位置。
     #[cfg(not(target_os = "windows"))]
     if app.state::<WebState>().is_active() {
         if let Some(web) = app.get_webview(WEB_WEBVIEW) {
@@ -101,8 +128,6 @@ pub fn relayout(window: &Window) {
 #[cfg(not(target_os = "windows"))]
 pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     let state = app.state::<WebState>();
-    // 缓存记忆 JSON，供 modal 关闭后重建子视图用
-    state.0.lock().unwrap().last_memories = memories_json.to_string();
     if state.is_active() {
         if state.is_suppressed() {
             set_suppressed(app, false);
@@ -120,7 +145,7 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
         .expect("deepseek URL 必合法");
     let app_for_nav = app.clone();
     main.add_child(
-        WebviewBuilder::new(WEB_WEBVIEW, WebviewUrl::External(url))
+        WebviewBuilder::new(WEB_WEBVIEW, tauri::WebviewUrl::External(url))
             .initialization_script(&inject_script(memories_json))
             .on_navigation(move |nav_url| {
                 // deepseek webview 通过 location.replace('dsondt://xxx') 通知宿主；
@@ -157,71 +182,26 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 网页模式（Windows）：**不用 add_child**（WebView2 上 z-order 不可控、渲染表面压顶吞点击，
-/// 见 Tauri issue #6264 与 WebView2 的「Topmost Render Surface」问题），改用独立的无边框
-/// WebviewWindow 加载 chat.deepseek.com，并排在主窗口右侧。deepseek 是普通 OS 窗口，
-/// 绝不覆盖主 webview，主窗口所有按钮永远可点；modal 打开时 hide 此窗口、关闭后 show。
+/// 网页模式（Windows）：WebView2 的渲染面永远压顶，无法用 `add_child` 在同窗叠加子视图
+/// （会盖住整个父窗口、吞掉所有点击，Tauri issue #6264）。因此**单窗口**的做法是：
+/// 直接把主 webview 导航到 chat.deepseek.com —— 仍是同一个窗口、同一个 webview，
+/// 只是里面加载的页面在「本地 UI」与「DeepSeek」之间切换。记忆注入脚本在 deepseek 域名下
+/// 自动挂 🧠 / 💬 按钮，💬 返回即把主 webview 导回本地首页（见 `deactivate`）。
 #[cfg(target_os = "windows")]
-pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
+pub fn activate(app: &AppHandle, _memories_json: &str) -> Result<(), String> {
     let state = app.state::<WebState>();
-    state.0.lock().unwrap().last_memories = memories_json.to_string();
-
-    // 窗口已存在（比如用户最小化后又点了一次「网页」）→ 唤回来就行，别重复创建。
-    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-        state.set_active(true);
-        state.set_suppressed(false);
-        push_memories(app, memories_json);
+    if state.is_active() {
         return Ok(());
     }
-
+    let w = app
+        .get_webview_window(MAIN_WINDOW)
+        .ok_or_else(|| "主窗口不存在".to_string())?;
     let url: tauri::Url = "https://chat.deepseek.com"
         .parse()
         .expect("deepseek URL 必合法");
-
-    // 尺寸必须用**逻辑像素**。`outer_size()` 返回的是物理像素，在 125% / 150% DPI 缩放的
-    // Windows 上直接当逻辑值喂给 `inner_size()` 会被再乘一次缩放系数 —— 窗口大到离谱，
-    // 甚至超出 WebView2 渲染面尺寸上限，结果就是「硕大的纯白窗口」。
-    // 再叠加旧代码把窗口摆到 `x + w + 8`（主窗右侧、基本在屏幕外），观感就是一片白。
-    let (mw, mh) = app
-        .get_window(MAIN_WINDOW)
-        .map(|m| window_size(&m))
-        .unwrap_or((1280.0, 820.0));
-    let w = mw.clamp(900.0, 1440.0);
-    let h = mh.clamp(600.0, 900.0);
-
-    let win = tauri::WebviewWindowBuilder::new(app, WEB_WEBVIEW, WebviewUrl::External(url))
-        .title("DSonDT · DeepSeek 网页模式")
-        // 保留系统标题栏：这是独立 OS 窗口，用户需要有最小化 / 关闭的去处
-        // （上一版 decorations(false) 导致「没有任何按钮」，关都关不掉）。
-        .decorations(true)
-        .inner_size(w, h)
-        .min_inner_size(800.0, 560.0)
-        .center()
-        .resizable(true)
-        .visible(true)
-        .initialization_script(&inject_script(memories_json))
-        .build()
-        .map_err(|e| format!("创建 deepseek 窗口失败：{e}"))?;
-
-    // 用户直接关掉网页窗口 → 状态回落到 API 模式，并通知本地 UI 把标签切回来，
-    // 否则 App 会一直以为自己还在网页模式。
-    let app_for_close = app.clone();
-    win.on_window_event(move |e| {
-        if let tauri::WindowEvent::CloseRequested { .. } = e {
-            let st = app_for_close.state::<WebState>();
-            st.set_active(false);
-            st.set_suppressed(false);
-            if let Some(ui) = app_for_close.get_webview(MAIN_WINDOW) {
-                let _ = ui.eval("window.dispatchEvent(new CustomEvent('dsondt:web-closed'))");
-            }
-        }
-    });
-
+    w.navigate(url)
+        .map_err(|e| format!("导航到 DeepSeek 失败：{e}"))?;
     state.set_active(true);
-    state.set_suppressed(false);
     Ok(())
 }
 
@@ -259,13 +239,25 @@ pub fn deactivate(app: &AppHandle) {
     let state = app.state::<WebState>();
     state.set_active(false);
     state.set_suppressed(false);
-    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
-        let _ = w.close();
+    // 本窗口仍是主 webview，无需关闭任何子窗口。
+    // 标记「本次返回」：本地首页重载后需要用它把 store.mode 从 'web' 纠正回 'api'，
+    // 否则会立刻又跳回网页模式。
+    state.set_pending_api(true);
+    if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
+        let home = state.home_url();
+        if let Ok(u) = home.parse::<tauri::Url>() {
+            let _ = w.navigate(u);
+        }
     }
 }
 
 pub fn is_active(app: &AppHandle) -> bool {
     app.state::<WebState>().is_active()
+}
+
+/// 读取并清空 pending_api 标志（命令层包装）。
+pub fn take_pending_api(app: &AppHandle) -> bool {
+    app.state::<WebState>().take_pending_api()
 }
 
 /// 临时隐藏 / 恢复 deepseek 视图（用于本地弹模态）。
@@ -287,8 +279,8 @@ pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
     }
 }
 
-/// Windows：网页模式是**独立 OS 窗口**，压根不会盖住主窗口里的 modal，
-/// 所以这里只记状态、不做 hide/show —— 一 hide 用户会以为网页窗口被自己弄没了。
+/// Windows：网页模式是「主 webview 直接导航到 DeepSeek」，本地 UI 此刻并未加载，
+/// 因此不存在「本地 modal 被远程视图盖住」的问题，这里只记状态、不做任何 UI 操作。
 #[cfg(target_os = "windows")]
 pub fn set_suppressed(app: &AppHandle, suppressed: bool) {
     app.state::<WebState>().set_suppressed(suppressed);
@@ -305,13 +297,13 @@ pub fn push_memories(app: &AppHandle, json: &str) {
     }
 }
 
-/// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图（Windows：独立窗口）。
+/// 把最新记忆 JSON 推给当前正在显示的 deepseek 视图（Windows：deepseek 渲染在主 webview 内）。
 #[cfg(target_os = "windows")]
 pub fn push_memories(app: &AppHandle, json: &str) {
     let js = format!(
         "try{{window.__DSONDT__&&window.__DSONDT__.setMemories({json})}}catch(e){{}}"
     );
-    if let Some(w) = app.get_webview_window(WEB_WEBVIEW) {
+    if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
         let _ = w.eval(&js);
     }
 }
@@ -325,6 +317,9 @@ const INJECT_JS: &str = r##"
 (function () {
   if (window.__DSONDT_INJECTED__) return;
   window.__DSONDT_INJECTED__ = true;
+
+  // 只在 DeepSeek 页面挂载；本地 UI 页（以及 macOS 的主 webview）直接跳过，避免误挂按钮。
+  if (location.hostname.indexOf('deepseek') === -1) return;
 
   var MEMORIES = __DSONDT_MEMORIES__;
   var TOP_K = 5;
@@ -449,10 +444,11 @@ const INJECT_JS: &str = r##"
     '</style>',
     '<div class="wrap">',
     '<div class="toast" id="t"></div>',
-    // 仅保留「🧠 注入记忆」按钮。「📚 打开记忆库」按钮因外部 webview 调 IPC
-    // 在 Tauri 2 capability 匹配有 known issue（#10298/#10317），App 顶栏本身就有 🧠 入口，
-    // 这里再放一份容易让人误以为坏的按钮，索性撤掉。
+    // 「🧠 注入记忆」：把本地记忆相关片段前置填进 DeepSeek 输入框。
     '<button class="btn" id="inj">🧠 注入记忆 <span class="badge" id="b">0</span></button>',
+    // 「💬 返回 API」：把主 webview 导回本地 UI（单窗口切换，不另开窗口）。
+    // macOS 下等价于点顶栏标签切回；Windows 下是主 webview 重新导航回本地首页。
+    '<button class="btn sec" id="ret">💬 返回 API</button>',
     '</div>'
   ].join('');
 
@@ -501,6 +497,10 @@ const INJECT_JS: &str = r##"
   }
 
   shadow.getElementById('inj').addEventListener('click', doInject);
+
+  shadow.getElementById('ret').addEventListener('click', function () {
+    invoke('deactivate_web_mode').catch(function () {});
+  });
 
   document.addEventListener('keydown', function (e) {
     if ((e.metaKey || e.ctrlKey) && (e.key === 'm' || e.key === 'M')) {
@@ -583,6 +583,6 @@ const INJECT_JS: &str = r##"
 "##;
 
 /// 烘焙记忆快照：把 `__DSONDT_MEMORIES__` 占位符替换为当前记忆 JSON。
-fn inject_script(memories_json: &str) -> String {
+pub fn inject_script(memories_json: &str) -> String {
     INJECT_JS.replace("__DSONDT_MEMORIES__", memories_json)
 }

@@ -44,6 +44,7 @@ export const api = {
   openWebMode: () => invoke<void>("open_web_mode"),
   webModeOpen: () => invoke<boolean>("web_mode_open"),
   deactivateWebMode: () => invoke<void>("deactivate_web_mode"),
+  takePendingApi: () => invoke<boolean>("take_pending_api"),
   setSuppressed: (suppressed: boolean) =>
     invoke<void>("set_webview_suppressed", { suppressed }),
   syncWebMemories: () => invoke<void>("sync_web_memories"),

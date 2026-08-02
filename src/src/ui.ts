@@ -241,12 +241,6 @@ export async function initUI() {
   }
   // 网页模式里注入的「📚 编辑记忆库」按钮会经 Rust 派发这个事件，由本地 UI 打开弹窗
   window.addEventListener("dsondt:open-memory", () => void openMemory());
-  // Windows：网页模式是独立窗口，用户直接把它关掉时 Rust 会派发这个事件，
-  // 本地 UI 要把模式标签切回 API，否则会卡在「以为自己还在网页模式」的状态。
-  window.addEventListener("dsondt:web-closed", () => {
-    store.setMode("api");
-    updateModeTabs();
-  });
   // Esc 关闭当前打开的模态框
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
@@ -312,6 +306,13 @@ export async function initUI() {
     updateModeTabs();
     if (!(await api.hasApiKey())) openSettings();
   });
+
+  // Windows 网页模式点「💬 返回」后，Rust 把主 webview 导回本地首页并重载；
+  // 重载瞬间 localStorage 里 ds_mode 仍是 'web'，需用 Rust 的 pending 标志纠正回 'api'，
+  // 否则会立刻又跳回网页模式。
+  if (await api.takePendingApi()) {
+    store.setMode("api");
+  }
 
   if (!store.mode) {
     // 首次启动：先让用户选模式，而不是上来就要 Key

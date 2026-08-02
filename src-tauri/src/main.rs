@@ -145,6 +145,12 @@ fn deactivate_web_mode(app: tauri::AppHandle) {
     webmode::deactivate(&app);
 }
 
+/// 读取并清空 pending_api 标志（Windows 网页模式「💬 返回」后纠正 store.mode 用）。
+#[tauri::command]
+fn take_pending_api(app: tauri::AppHandle) -> bool {
+    webmode::take_pending_api(&app)
+}
+
 /// 本地要弹模态框了，先把压在上面的远程 webview 藏起来，关闭后再恢复。
 #[tauri::command]
 fn set_webview_suppressed(app: tauri::AppHandle, suppressed: bool) {
@@ -232,6 +238,9 @@ fn main() {
             #[cfg(target_os = "windows")]
             {
                 win_builder = win_builder.decorations(false);
+                // Windows 网页模式是「主 webview 直接导航到 DeepSeek」的单窗口方案，
+                // 把记忆注入脚本挂到主 webview 上（脚本内部按 hostname 只在 deepseek 页挂载按钮）。
+                win_builder = win_builder.initialization_script(&webmode::inject_script("[]"));
             }
             let ww = win_builder.build().map_err(|e| e.to_string())?;
 
@@ -240,6 +249,14 @@ fn main() {
                 .get_window(MAIN_WINDOW)
                 .ok_or_else(|| "主窗口创建后未注册".to_string())?;
             webmode::relayout(&main_win);
+
+            // Windows 网页模式用「主 webview 直接导航」实现单窗口切换，
+            // 记录本地首页 URL，作为返回 API 模式时的导航目标。
+            if let Some(vw) = app.get_webview_window(MAIN_WINDOW) {
+                if let Ok(u) = vw.url() {
+                    app.state::<WebState>().set_home_url(u.to_string());
+                }
+            }
 
             // 窗口缩放时，重新摆位本地 UI 与（网页模式下）deepseek 子视图，否则它们不会跟着变大变小。
             ww.on_window_event(move |event| {
@@ -272,6 +289,7 @@ fn main() {
             open_web_mode,
             web_mode_open,
             deactivate_web_mode,
+            take_pending_api,
             set_webview_suppressed,
             open_memory_panel,
             sync_web_memories,
