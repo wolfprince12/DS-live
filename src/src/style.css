@@ -1332,28 +1332,11 @@ body.modal-open .app-body {
   min-width: 0;
 }
 
+/* 保持原图比例（1710×624 ≈ 2.74:1 横向长条），只限高，宽 auto */
 .about-product-qr {
-  width: 132px;
-  height: 132px;
-  border-radius: 8px;
-  background: #fff;
-  padding: 4px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-}
-
-.about-product-qr-wrap {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 2px;
-}
-
-.about-product-qr-tip {
-  font-size: 11.5px;
-  color: var(--text-soft);
-  line-height: 1.55;
-  flex: 1;
-  min-width: 0;
+  height: 76px;
+  width: auto;
+  flex: none;
 }
 
 .about-product:hover {
