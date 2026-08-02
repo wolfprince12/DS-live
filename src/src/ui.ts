@@ -77,6 +77,39 @@ export async function initUI() {
       `[promise] ${e.reason instanceof Error ? e.reason.stack || e.reason.message : String(e.reason)}`,
     ),
   );
+  // —— 诊断增强：把每一次 click 与 invoke 都打到红条，盲调 Windows 交互用。
+  // click 用捕获阶段记录，能看出点击到底有没有传到按钮；
+  // invoke 包一层记录命令名 + 成功/失败，能看出是不是 IPC 在 Windows 上整体失败。
+  try {
+    const _inv = (window as any).__TAURI_INTERNALS__?.invoke;
+    if (_inv) {
+      (window as any).__TAURI_INTERNALS__.invoke = function (cmd: string, args: any) {
+        pushDiag(`[inv→] ${cmd}`);
+        return _inv.call(this, cmd, args).then(
+          (r: any) => {
+            pushDiag(`[inv✓] ${cmd}`);
+            return r;
+          },
+          (err: any) => {
+            pushDiag(`[inv✗] ${cmd}: ${String((err && err.message) || err)}`);
+            throw err;
+          },
+        );
+      };
+    }
+  } catch {
+    /* 忽略 */
+  }
+  document.addEventListener(
+    "click",
+    (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      pushDiag(
+        `[click] ${t.tagName}#${t.id}.${(t.className || "").toString().slice(0, 48)} dp=${e.defaultPrevented}`,
+      );
+    },
+    true,
+  );
 
   const app = document.getElementById("app")!;
   app.innerHTML = template();
