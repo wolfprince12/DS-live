@@ -212,6 +212,7 @@ body {
   padding: 0 16px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+  position: relative;
   z-index: 5;
 }
 
@@ -220,42 +221,66 @@ body {
     macOS 的 Overlay 标题栏会让它失效，但 Windows 的 WebView2(Chromium) 会真实生效，
    变成原生拖拽区，与 JS 拖动冲突并吞掉点击。两端都只用 JS 拖动，保持一致。 */
 
-/* macOS: titleBarStyle=Overlay 时红黄绿按钮浮在我们顶栏左侧 ~12-72px，需要让位 */
+/* macOS: titleBarStyle=Overlay 时 OS 红黄绿浮在顶栏左侧 ~12-72px，需要让位 */
 body.platform-mac .app-topbar {
   padding-left: 80px;
 }
-
-/* Windows / Linux：使用标准窗口（保留系统标题栏与边框），前端 48px 顶栏走默认
-   padding:0 16px，与 macOS 顶栏内容对齐；仅 macOS 因红黄绿浮在左侧才额外左让位 80px。
-   窗口控制（min/max/close）由系统标题栏提供，不再需要前端自绘按钮。 */
-
-/* 自绘窗口控制按钮：默认隐藏（macOS 用原生红黄绿、Windows/Linux 用系统标题栏，都不需要）；
-   保留规则以免日后复用，但当前各平台均不显示。 */
-.win-controls {
-  display: none;
+/* Windows / Linux：decorations=false 去掉系统标题栏后，前端在顶栏左上角自绘 mac 同款
+   红黄绿按钮（.traffic-lights，绝对定位 left:12px），同样左让位 80px，
+   使顶栏内容（logo + 模式标签）的水平位置与 macOS 完全对齐。 */
+body.platform-windows .app-topbar,
+body.platform-linux .app-topbar {
+  padding-left: 80px;
 }
-.win-ctrl-btn {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
+
+/* 自绘 mac 同款红黄绿按钮：仅 Windows / Linux 显示（macOS 用 OS 原生浮左，前端不画）。
+   绝对定位在顶栏左上角，与 macOS 红黄绿位置一致；顶栏 padding-left:80px 为它们让位，
+   保证两端顶栏内容水平对齐。鼠标悬停整组时浮现 ✕/−/+ 字形（仿 macOS）。 */
+.traffic-lights {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+}
+body.platform-windows .traffic-lights,
+body.platform-linux .traffic-lights {
+  display: flex;
+}
+.traffic-light {
+  width: 12px;
+  height: 12px;
+  padding: 0;
   border: none;
-  background: transparent;
-  color: var(--text, #1f2329);
-  font-size: 14px;
-  line-height: 1;
+  border-radius: 50%;
   cursor: pointer;
-  border-radius: 6px;
+  position: relative;
+  outline: none;
   -webkit-app-region: no-drag;
 }
-.win-ctrl-btn:hover {
-  background: rgba(128, 128, 128, 0.18);
+.traffic-light::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.55);
+  opacity: 0;
 }
-.win-ctrl-close:hover {
-  background: #e81123;
-  color: #fff;
+.traffic-lights:hover .traffic-light::after {
+  opacity: 1;
 }
+.traffic-red::after { content: "✕"; }
+.traffic-yellow::after { content: "−"; }
+.traffic-green::after { content: "+"; }
+.traffic-red { background: #ff5f57; }
+.traffic-yellow { background: #febc2e; }
+.traffic-green { background: #28c840; }
 
 .app-brand {
   display: flex;

@@ -39,7 +39,7 @@ const DEEPSEEK_KEY_URL = "https://platform.deepseek.com/api_keys";
 // mousedown 手势中触发原生拖拽），对叠加标题栏 100% 可靠。
 // 顶栏/侧栏的可交互子元素（按钮、会话项等）不触发拖动。
 const NO_DRAG_SELECTOR =
-  'button, input, select, textarea, a, [contenteditable="true"], .no-drag, .mode-tab, .topbar-icon-btn, .win-ctrl-btn, .conv-item, .new-chat-btn';
+  'button, input, select, textarea, a, [contenteditable="true"], .no-drag, .mode-tab, .topbar-icon-btn, .traffic-light, .conv-item, .new-chat-btn';
 
 function enableDrag(selector: string) {
   const el = document.querySelector(selector) as HTMLElement | null;
@@ -167,12 +167,12 @@ export async function initUI() {
 
   const app = document.getElementById("app")!;
   app.innerHTML = template();
-  // 平台标识：决定顶栏是否显示自绘窗口控制按钮。
-  //   - macOS：titleBarStyle=Overlay 把原生红黄绿浮在顶栏左侧 → platform-mac，无需自绘按钮
-  //   - Windows：decorations=false 完全去掉原生标题栏 → platform-windows，顶栏右侧自绘 min/max/close
+  // 平台标识：决定顶栏左上角是否显示自绘的红黄绿按钮。
+  //   - macOS：titleBarStyle=Overlay 把 OS 原生红黄绿浮在顶栏左侧 → platform-mac，前端不画按钮
+  //   - Windows：decorations=false 去掉系统标题栏 → platform-windows，前端在顶栏左上角自绘 mac 同款红黄绿
   //   - 其他（Linux 等）→ platform-linux，同 Windows 策略兜底
-  // 两端都用「无原生标题栏 + 本地 UI 自绘 48px 顶栏（logo+模式标签+🧠⚙ℹ）」，App 自身 UI 与 macOS 完全一致；
-  // 唯一差异是 OS 窗口控制按钮：mac 浮在左、Windows 自绘在右（不可避免）。
+  // 两端顶栏内容（logo+模式标签+🧠⚙ℹ）与水平位置（padding-left:80px）完全一致；
+  // 窗口控制按钮都是红黄绿浮在左上，视觉对齐 mac。
   const nav = (navigator.platform || navigator.userAgent || "").toLowerCase();
   if (/mac/.test(nav)) document.body.classList.add("platform-mac");
   else if (/win/.test(nav)) document.body.classList.add("platform-windows");
@@ -228,8 +228,8 @@ export async function initUI() {
   document.getElementById("memory-btn")!.addEventListener("click", () => void openMemory());
   document.getElementById("settings-btn")!.addEventListener("click", () => void openSettings());
   document.getElementById("about-btn")!.addEventListener("click", () => void openAbout());
-  // Windows 自绘窗口控制按钮（decorations=false 时由本地 UI 负责 min/max/close）
-  // 走 @tauri-apps/api/window 的同名方法，与 macOS 的 JS 拖动 API 同源、无需新增 Rust 命令。
+  // 自绘红黄绿按钮（decorations=false 时由本地 UI 负责 min/max/close），
+  // 走 @tauri-apps/api/window 的同名方法，无需新增 Rust 命令。
   try {
     const win = getCurrentWindow();
     document.getElementById("win-min")?.addEventListener("click", () => void win.minimize().catch(() => {}));
@@ -377,6 +377,11 @@ function template(): string {
   return `
   <div class="app">
     <header class="app-topbar">
+      <div class="traffic-lights" id="traffic-lights">
+        <button id="win-close" class="traffic-light traffic-red" title="关闭" type="button" aria-label="关闭"></button>
+        <button id="win-min" class="traffic-light traffic-yellow" title="最小化" type="button" aria-label="最小化"></button>
+        <button id="win-max" class="traffic-light traffic-green" title="最大化" type="button" aria-label="最大化"></button>
+      </div>
       <div class="app-brand">
         <img src="/logo.png" class="app-logo" alt="DSonDT">
         <span class="app-name">DSonDT</span>
@@ -389,11 +394,6 @@ function template(): string {
       <button id="memory-btn" class="topbar-icon-btn" title="记忆库">🧠</button>
       <button id="settings-btn" class="topbar-icon-btn" title="设置">⚙</button>
       <button id="about-btn" class="topbar-icon-btn" title="关于 DSonDT">ℹ</button>
-      <div class="win-controls" id="win-controls">
-        <button id="win-min" class="win-ctrl-btn" title="最小化" type="button">—</button>
-        <button id="win-max" class="win-ctrl-btn" title="最大化" type="button">□</button>
-        <button id="win-close" class="win-ctrl-btn win-ctrl-close" title="关闭" type="button">✕</button>
-      </div>
     </header>
     <div class="app-body">
       <aside class="sidebar">
