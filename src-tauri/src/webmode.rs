@@ -126,8 +126,7 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
                     return false;
                 }
                 true
-            })
-            .auto_resize(),
+            }),
         LogicalPosition::new(0.0, TOP_BAR_H),
         LogicalSize::new(w, (h - TOP_BAR_H).max(1.0)),
     )
@@ -135,6 +134,16 @@ pub fn activate(app: &AppHandle, memories_json: &str) -> Result<(), String> {
 
     state.set_active(true);
     state.set_suppressed(false);
+
+    // 关键：Tauri 2 的 `WebviewBuilder::auto_resize()` 在 macOS 上会把刚 add_child 的
+    // 子 webview 强制拉回 (0, 0) 铺满父窗口，导致覆盖 DSonDT 顶栏的 (0..48) 区域。
+    // 这里**不使用** auto_resize，改由 `main.rs` 的 `Resized` listener + 本文件的
+    // `relayout()` 手动同步位置/尺寸。add_child 之后主动再摆一次，吸收任何初始化
+    // 阶段被覆盖的位置。
+    if let Some(main_win) = app.get_window(MAIN_WINDOW) {
+        relayout(&main_win);
+    }
+
     Ok(())
 }
 
