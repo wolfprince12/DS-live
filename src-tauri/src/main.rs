@@ -212,11 +212,11 @@ fn main() {
             // 鼠标拖不动窗口的根因。所以 ui 必须是主 webview，deepseek 才是叠加的子视图。
             // 网页模式下再追加一个官方 deepseek 子视图，二者共处一窗。
             //
-            // 自定义 48px 顶栏（logo + 模式标签 + 🧠⚙ℹ），两个平台都用「无原生标题栏」方案让本地 UI 自己画：
+            // 自定义 48px 顶栏（logo + 模式标签 + 🧠⚙ℹ），两个平台的 App 内部 UI 完全一致：
             //   - macOS：TitleBarStyle::Overlay + hidden_title(true) 把原生红黄绿浮在顶栏左侧
             //            → style.css 给顶栏 padding-left:80px 让位；
-            //   - Windows：decorations(false) 完全去掉原生标题栏，在顶栏右侧自绘 min/max/close 按钮
-            //            → 顶栏右侧由前端画三个窗口控制按钮（见 ui.ts / style.css 的 platform-windows）。
+            //   - Windows：使用标准窗口（保留系统标题栏与边框，不做 decorations(false) 自绘），
+            //            外观是用户熟悉的普通 Windows 窗口，App 内部 UI 与 macOS 对齐。
             // 仅 OS 窗口控制按钮外观/位置因平台而异（不可避免），App 自身 UI 完全对齐。
             #[allow(unused_mut)] // mut 仅 macOS/Windows 分支用到
             let mut win_builder = WebviewWindowBuilder::new(
@@ -237,9 +237,10 @@ fn main() {
             }
             #[cfg(target_os = "windows")]
             {
-                win_builder = win_builder.decorations(false);
                 // Windows 网页模式是「主 webview 直接导航到 DeepSeek」的单窗口方案，
                 // 把记忆注入脚本挂到主 webview 上（脚本内部按 hostname 只在 deepseek 页挂载按钮）。
+                // 窗口用 Tauri 默认的标准窗口（保留系统标题栏/边框），不去掉原生装饰，
+                // 外观才是用户熟悉的普通窗口，避免无边框自绘顶栏带来的「界面变样」观感。
                 win_builder = win_builder.initialization_script(&webmode::inject_script("[]"));
             }
             let ww = win_builder.build().map_err(|e| e.to_string())?;
