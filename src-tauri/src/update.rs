@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn version_compare() {
         assert!(is_newer("0.3.4", "0.3.3"));
-        assert!(is_newer("v0.4.0", "0.3.9"));
+        assert!(is_newer("v0.4.1", "0.3.9"));
         assert!(is_newer("0.3.10", "0.3.9")); // 数字比较，不是字符串
         assert!(!is_newer("0.3.3", "0.3.3"));
         assert!(!is_newer("0.3.2", "0.3.3"));
