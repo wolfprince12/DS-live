@@ -2,14 +2,16 @@
 
 <img src="src-tauri/app-icon-source.png" width="120" alt="DSonDT">
 
-# DSonDT · Windows 版
+# DSonDT
 
-**DeepSeek on Desktop** —— 一个本地运行的 DeepSeek 桌面客户端（**原生 Windows 客户端**）。
+**DeepSeek on Desktop** —— 一个本地运行的 DeepSeek 桌面客户端。
 
 > 本项目与 DeepSeek 官方相互独立，仅使用其公开 API；所有对话与记忆只存你本机，不依赖任何服务端。
 
-![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-000000?logo=apple&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
+
+**macOS 版与 Windows 版均已上线，功能完全一致**：本地长期记忆、网页模式 + API 模式单窗口切换、你自己的 DeepSeek API Key 本地保管。
 
 ---
 
@@ -18,26 +20,29 @@
 ## 功能
 
 - **本地长期记忆（可编辑）**：在「记忆库」里自己增删改，掌控 AI 对你的长期认知；两种模式下你发出的消息都会自动沉淀。
-- **你自己的 DeepSeek API Key**：优先存入系统凭据管理器（Windows Credential Manager），不可用时回退到本地 XOR 加密文件（apikey.bin），不落明文、不上传。
+- **你自己的 DeepSeek API Key**：macOS 存入系统钥匙串（Keychain），Windows 存入凭据管理器（Credential Manager），不可用时回退到本地 XOR 加密文件，不落明文、不上传。
 - **单窗口双模式**：网页模式（用你自己的 DeepSeek 账号）+ API 模式（自备 Key），同一窗口内切换，共用同一份记忆库。
-- **原生 Windows 客户端**：基于 Tauri 2（Rust 后端 + TypeScript 前端），原生 WebView2 渲染。
-- **多会话、流式输出、深度思考开关、对话导入/导出（JSON）**。
+- **原生客户端**：基于 Tauri 2（Rust 后端 + TypeScript 前端）；macOS 用 WKWebView，Windows 用 WebView2 原生渲染。
+- **多会话、流式输出、深度思考开关、对话导入/导出（JSON）。**
 
 ## 下载 / 安装
 
+### macOS
+
+1. 从 [Releases](https://github.com/wolfprince12/DSonDT/releases) 下载 `DSonDT-{version}-aarch64.dmg`（Apple Silicon）。
+2. 打开 DMG，把 `DSonDT.app` 拖到「应用程序」。
+3. **首次打开会被 Gatekeeper 拦下**（本应用使用 ad-hoc 签名、未购买 Apple 开发者公证）：
+   - 方式一：在「应用程序」里**右键 → 打开**，在弹窗里点「打开」；
+   - 方式二：双击 DMG 内的 `fix.command`（首次需允许「终端」运行），一键清除隔离属性。
+4. 没有 Apple 开发者账号，所以这是预期行为，并非软件有问题。
+
+### Windows
+
 > 提供两种形态：**绿色便携版**（解压即用，无需安装）与 **安装包**（.msi / .nsis）。
 
-### 方式一：绿色便携版（推荐，免安装）
-1. 从 Releases 下载 DSonDT-x.x.x-windows-portable.zip。
-2. 解压后**直接双击 DSonDT.exe** 即可运行，可放在任意目录或 U 盘随身携带。
-
-### 方式二：安装包
-1. 从 Releases 下载 DSonDT_x64_en-US.msi（或 .exe 安装向导）。
-2. 按提示安装，从开始菜单 / 桌面快捷方式启动。
-
-### 环境要求
-- Windows 10 / 11（64 位）
-- 已安装 Microsoft Edge WebView2 Runtime（Win11 自带；Win10 多数已预装，未装请到微软官网下载 WebView2 Runtime）
+1. **绿色便携版（推荐，免安装）**：从 Releases 下载 `DSonDT-x.x.x-windows-portable.zip`，解压后直接双击 `DSonDT.exe` 即可运行，可放任意目录或 U 盘。
+2. **安装包**：下载 `DSonDT_x64_en-US.msi`（或 .exe 安装向导），按提示安装，从开始菜单 / 桌面快捷方式启动。
+3. **环境要求**：Windows 10 / 11（64 位），并已安装 Microsoft Edge **WebView2 Runtime**（Win11 自带；Win10 未装请到微软官网下载）。
 
 ## 两种模式，共用同一记忆库
 
@@ -57,9 +62,19 @@ DSonDT 不打任何服务端、不收集任何数据，全部在本地完成：
 - **记忆存储**：每条记忆以文本存入本地 SQLite；有 API Key 时额外生成 embedding 向量，检索走「向量余弦 + 字符二元组」双路匹配。
 - **记忆检索**：新对话时取最相关 Top-K（相似度 >= 0.25）注入上下文；无 Key 时自动退化为字符二元组关键词检索，零成本可用。
 - **记忆沉淀**：两种模式下你发出的消息都会自动写入记忆库，也可在「记忆库」面板手动编辑。
-- **密钥保护**：API Key 优先写入 Windows 凭据管理器；不可用时回退到本地 XOR 加密文件，权限受限，绝不落明文、绝不上传。
+- **密钥保护**：API Key 在 macOS 写入系统钥匙串、在 Windows 写入凭据管理器；不可用时回退到本地 XOR 加密文件，权限受限，绝不落明文、绝不上传。
 
 ## 自行构建
+
+### macOS
+
+前置：macOS 12+ + Rust + Node.js 22+。
+
+    cd src && npm install        # 前端依赖
+    npm run tauri dev            # 开发模式（热更新）
+    npm run tauri build          # 打包：生成 .app / .dmg
+
+### Windows
 
 前置：Windows 10/11 + Rust（MSVC 工具链）+ Node.js 22+ + WebView2 Runtime。
 
@@ -67,9 +82,9 @@ DSonDT 不打任何服务端、不收集任何数据，全部在本地完成：
     npm run tauri dev            # 开发模式（热更新）
     npm run tauri build          # 打包：生成 .msi / .nsis 安装包
 
-> 若只需**绿色便携版**：用 Tauri CLI 直接出 exe，再把 src-tauri/target/release/DSonDT.exe 压缩即可：
-
-    node ./src/node_modules/@tauri-apps/cli/tauri.js build --no-bundle
+> 若只需**绿色便携版**：用 Tauri CLI 直接出 exe，再把 `src-tauri/target/release/DSonDT.exe` 压缩即可：
+>
+>     node ./src/node_modules/@tauri-apps/cli/tauri.js build --no-bundle
 
 首次启动在「设置」中填入 DeepSeek API Key。
 
@@ -93,35 +108,31 @@ DSonDT 最初是给自己做的工具——让 AI 真的「记得」我。后来
 
 ---
 
-# DSonDT (Windows) — English
+# DSonDT — English
 
-**DeepSeek on Desktop** — a locally-run DeepSeek desktop client (**native Windows build**).
+**DeepSeek on Desktop** — a locally-run DeepSeek desktop client.
 
 > This project is independent of DeepSeek; it only uses their public API, and all conversations and memories stay on your machine — no server required.
+
+**Both macOS and Windows builds are available**, with identical features.
 
 ## Features
 
 - **Editable local long-term memory**: add/edit/delete in the Memory panel; messages you send in either mode are auto-captured.
-- **Your own DeepSeek API Key**: stored in the Windows Credential Manager first, with automatic fallback to a local XOR-encrypted file — never plaintext, never uploaded.
+- **Your own DeepSeek API Key**: stored in the macOS Keychain / Windows Credential Manager first, with automatic fallback to a local XOR-encrypted file — never plaintext, never uploaded.
 - **Single-window dual mode**: Web mode (your DeepSeek account) + API mode (your own Key), switched in-app and sharing one memory store.
-- **Native Windows client**: Tauri 2 (Rust backend + TypeScript frontend), rendered by native WebView2.
+- **Native client**: Tauri 2 (Rust backend + TypeScript frontend); WKWebView on macOS, WebView2 on Windows.
 - **Multi-session, streaming, thinking toggle, conversation import/export (JSON).**
 
 ## Install
 
-> Two flavors: a **portable zip** (extract and run, no install) and an **installer** (.msi / .nsis).
-
-- **Portable**: download DSonDT-x.x.x-windows-portable.zip from Releases, unzip, and double-click DSonDT.exe.
-- **Installer**: download DSonDT_x64_en-US.msi (or the .exe setup) and follow the prompts.
-- **Requirement**: Windows 10/11 (64-bit) with the Microsoft Edge WebView2 Runtime installed.
+- **macOS**: download `DSonDT-{version}-aarch64.dmg` from Releases, drag `DSonDT.app` to Applications. First launch is blocked by Gatekeeper (ad-hoc signed, not notarized) — right-click → Open, or run `fix.command` from the DMG to clear the quarantine attribute.
+- **Windows**: download `DSonDT-x.x.x-windows-portable.zip` (portable) or the `.msi` / `.exe` installer. Requires Windows 10/11 (64-bit) with the Microsoft Edge WebView2 Runtime.
 
 ## Build from source
 
-Prerequisites: Windows 10/11 + Rust (MSVC) + Node.js 22+ + WebView2 Runtime.
-
-    cd src && npm install
-    npm run tauri dev     # dev mode (hot reload)
-    npm run tauri build   # package: .msi / .nsis
+- **macOS**: `cd src && npm install` → `npm run tauri dev` (dev) / `npm run tauri build` (DMG).
+- **Windows**: `cd src && npm install` → `npm run tauri dev` / `npm run tauri build` (.msi / .nsis).
 
 ## About the Author
 
