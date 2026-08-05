@@ -38,11 +38,10 @@
 
 ### Windows
 
-> 提供两种形态：**绿色便携版**（解压即用，无需安装）与 **安装包**（.msi / .nsis）。
+> 仅提供 **绿色便携版**（解压即用，无需安装）。
 
-1. **绿色便携版（推荐，免安装）**：从 Releases 下载 `DSonDT-x.x.x-windows-portable.zip`，解压后直接双击 `DSonDT.exe` 即可运行，可放任意目录或 U 盘。
-2. **安装包**：下载 `DSonDT_x64_en-US.msi`（或 .exe 安装向导），按提示安装，从开始菜单 / 桌面快捷方式启动。
-3. **环境要求**：Windows 10 / 11（64 位），并已安装 Microsoft Edge **WebView2 Runtime**（Win11 自带；Win10 未装请到微软官网下载）。
+1. **绿色便携版（免安装）**：从 Releases 下载 `DSonDT_x.x.x_x64_portable.zip`，解压后直接双击 `DSonDT.exe` 即可运行，可放任意目录或 U 盘。
+2. **环境要求**：Windows 10 / 11（64 位），并已安装 Microsoft Edge **WebView2 Runtime**（Win11 自带；Win10 未装请到微软官网下载）。
 
 ## 两种模式，共用同一记忆库
 
@@ -80,11 +79,9 @@ DSonDT 不打任何服务端、不收集任何数据，全部在本地完成：
 
     cd src && npm install        # 前端依赖
     npm run tauri dev            # 开发模式（热更新）
-    npm run tauri build          # 打包：生成 .msi / .nsis 安装包
+    npm run tauri build -- --no-bundle   # 仅生成 .exe，再手动压缩为便携 zip
 
-> 若只需**绿色便携版**：用 Tauri CLI 直接出 exe，再把 `src-tauri/target/release/DSonDT.exe` 压缩即可：
->
->     node ./src/node_modules/@tauri-apps/cli/tauri.js build --no-bundle
+> 绿色便携版发布方式：用 Tauri CLI 直接出 exe，再把 `src-tauri/target/release/DSonDT.exe` 压缩为 `DSonDT_x.x.x_x64_portable.zip` 即可。
 
 首次启动在「设置」中填入 DeepSeek API Key。
 
@@ -127,12 +124,12 @@ DSonDT 最初是给自己做的工具——让 AI 真的「记得」我。后来
 ## Install
 
 - **macOS**: download `DSonDT-{version}-aarch64.dmg` from Releases, drag `DSonDT.app` to Applications. First launch is blocked by Gatekeeper (ad-hoc signed, not notarized) — right-click → Open, or run `fix.command` from the DMG to clear the quarantine attribute.
-- **Windows**: download `DSonDT-x.x.x-windows-portable.zip` (portable) or the `.msi` / `.exe` installer. Requires Windows 10/11 (64-bit) with the Microsoft Edge WebView2 Runtime.
+- **Windows**: download `DSonDT_x.x.x_x64_portable.zip` (portable, extract and run `DSonDT.exe`). Requires Windows 10/11 (64-bit) with the Microsoft Edge WebView2 Runtime.
 
 ## Build from source
 
 - **macOS**: `cd src && npm install` → `npm run tauri dev` (dev) / `npm run tauri build` (DMG).
-- **Windows**: `cd src && npm install` → `npm run tauri dev` / `npm run tauri build` (.msi / .nsis).
+- **Windows**: `cd src && npm install` → `npm run tauri dev` / `npm run tauri build -- --no-bundle` (portable .exe).
 
 ## About the Author
 
