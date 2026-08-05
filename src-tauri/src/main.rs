@@ -129,9 +129,14 @@ fn memories_json(state: &AppState) -> String {
 
 /// 打开网页模式：在**同一个窗口**内激活右侧的官方 chat.deepseek.com 子视图，并注入本地记忆增强层。
 #[tauri::command]
-fn open_web_mode(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
+fn open_web_mode(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+    web_state: tauri::State<WebState>,
+) -> Result<(), String> {
     let json = memories_json(&state);
-    webmode::activate(&app, &json)
+    let platform = if cfg!(target_os = "windows") { "win" } else { "mac" };
+    webmode::activate(&app, &json, &web_state.home_url(), platform)
 }
 
 #[tauri::command]
@@ -215,11 +220,23 @@ fn main() {
             // 自定义 48px 顶栏（logo + 模式标签 + 🧠⚙ℹ），两个平台的 App 内部 UI 完全一致：
             //   - macOS：TitleBarStyle::Overlay + hidden_title(true) 把原生红黄绿浮在顶栏左侧
             //            → style.css 给顶栏 padding-left:80px 让位；
-            //   - Windows：decorations(false) 去掉系统标题栏（本地 UI 顶到窗口最上沿），
-            //            由前端在顶栏左上角自绘 mac 同款红黄绿圆形按钮（.traffic-lights），
-            //            顶栏同样 padding-left:80px，确保顶栏内容水平位置与 macOS 完全对齐。
+            //   - Windows：decorations(true) 保留系统原生标题栏（拖拽 / 最小化 / 关闭由 OS 负责，
+            //            彻底规避 WebView2 上自绘按钮点击失灵的问题）；其余 UI 与 macOS 完全一致。
             // 两端 App 自身 UI（顶栏内容/侧栏/聊天/按钮）100% 一致；窗口控制按钮：
             // mac 为 OS 原生浮左、Windows 为前端自绘同款浮左，视觉一致。
+
+            // Windows 网页模式用「主 webview 整页导航」实现单窗口切换，返回 API 模式时
+            // 要把主 webview 导回本地首页，因此必须拿到**真正的**本地首页 URL。
+            // 这里在 builder 上挂 on_navigation，在首页真正发起导航时捕获它。
+            //
+            // 不能在 build() 之后立刻用 `vw.url()` 去取：那一刻页面尚未开始加载，
+            // 拿到的是 about:blank / 空串，会让「💬 返回 API」把主 webview 导到白板，
+            // 且本地 UI 丢失后再也切不回网页模式（本次修复的根因）。
+            //
+            // WebState 内部是 Arc<Mutex<..>>，clone 出的句柄与 app.state::<WebState>()
+            // 共享同一份状态，闭包里 set_home_url 会被 webmode::deactivate 读到。
+            let ws_for_nav = app.state::<WebState>().inner().clone();
+
             #[allow(unused_mut)] // mut 仅 macOS/Windows 分支用到
             let mut win_builder = WebviewWindowBuilder::new(
                 &*app,
@@ -230,7 +247,44 @@ fn main() {
             // 初始窗口尺寸：按用户期望的「正常可用」尺寸开，不要每次都得手动拉大。
             .inner_size(1280.0, 820.0)
             .min_inner_size(960.0, 640.0)
-            .resizable(true);
+            .resizable(true)
+            .on_navigation(move |url| {
+                // 只记录本地首页：Windows 打包态是 http://tauri.localhost，
+                // 资源协议是 asset.localhost，dev 下是 http://localhost:端口。
+                // chat.deepseek.com 等外部页不匹配，因此不会覆盖 home_url。
+                let host = url.host_str().unwrap_or("");
+                if host.contains("localhost") || host.contains("asset") {
+                    // 必须去掉 fragment 再记录：「💬 返回」是导航到 <home>#return-api，
+                    // 这一跳同样会触发本回调。若原样记下，第二次 🌐→💬 就会拼成
+                    // <home>#return-api#return-api，而 ui.ts 用的是严格相等
+                    // `location.hash === '#return-api'`，判等失败 → 模式纠正失效，
+                    // localStorage 里残留的 'web' 会让首屏又弹回 DeepSeek。
+                    //
+                    // ⚠️ 承重代码，勿轻改：Windows 返回路径上 pending_api 恒为 false
+                    // （该路径是纯前端导航，deactivate() 根本不会被调用，也就没人去
+                    // set_pending_api(true)），因此 take_pending_api() 那条兜底在 Windows 上
+                    // 形同虚设，模式纠正 100% 依赖 ui.ts 的 hash 分支这一条路，无冗余。
+                    // 改动 hash 约定时（webmode.rs 的 '#return-api' 与 ui.ts 的判等，
+                    // 以及这里的去 fragment）三处必须同步，否则「💬 返回」会静默失效。
+                    let mut clean = url.clone();
+                    clean.set_fragment(None);
+                    ws_for_nav.set_home_url(clean.to_string());
+
+                    // Windows 的「💬 返回」是注入脚本里的纯前端整页导航
+                    // （webmode.rs: window.location.href = HOME_URL + '#return-api'），
+                    // 不会经过 deactivate_web_mode 命令，而 active 只在 deactivate() 里被置 false，
+                    // 于是它会永久残留为 true → 下次点 🌐 时 activate() 被开头的
+                    // `if state.is_active() { return Ok(()) }` 提前吃掉，页面纹丝不动。
+                    // 主 webview 回到本地页 == 已退出网页模式，这里同步复位（也让
+                    // web_mode_open() 的返回值恢复准确）。
+                    // 仅限 Windows：macOS/Linux 的 deepseek 是叠加子 webview，
+                    // 主 webview 在网页模式下本来就停在本地页，复位会误清 active。
+                    #[cfg(target_os = "windows")]
+                    ws_for_nav.set_active(false);
+                }
+                // 本回调只做「记录」，一律放行导航（含切网页模式时的 deepseek）。
+                true
+            });
             #[cfg(target_os = "macos")]
             {
                 win_builder = win_builder
@@ -239,14 +293,11 @@ fn main() {
             }
             #[cfg(target_os = "windows")]
             {
-                // Windows 没有 macOS 的 TitleBarStyle::Overlay（该 API 仅 macOS 可用），
-                // 但要达到「与 Mac 版 UI 完全一致」：本地 UI 顶到窗口最上沿、不出现独立系统标题栏行。
-                // 故 Windows 也去掉原生装饰（decorations=false），前端在顶栏左上角自绘
-                // mac 同款红黄绿圆形按钮（见 style.css .traffic-lights 与 ui.ts 的 win-close/min/max 监听）。
-                // 网页模式仍是「主 webview 直接导航到 DeepSeek」的单窗口方案，记忆注入脚本挂到主 webview。
-                win_builder = win_builder
-                    .decorations(false)
-                    .initialization_script(&webmode::inject_script("[]"));
+                // Windows 用原生标题栏（decorations=true）：拖拽 / 最小化 / 关闭全部交给 OS，
+                // 不再依赖失效的 -webkit-app-region 与前端自绘红黄绿（旧方案在 WebView2 上
+                // 会让整窗点击失灵，正是上一版「按钮全死、窗口拖不动」的根因）。
+                // 网页模式走主 webview 整页导航，🧠/💬 浮层与记忆注入由 activate 线程反复 eval 挂载。
+                win_builder = win_builder.decorations(true);
             }
             let ww = win_builder.build().map_err(|e| e.to_string())?;
 
@@ -255,14 +306,6 @@ fn main() {
                 .get_window(MAIN_WINDOW)
                 .ok_or_else(|| "主窗口创建后未注册".to_string())?;
             webmode::relayout(&main_win);
-
-            // Windows 网页模式用「主 webview 直接导航」实现单窗口切换，
-            // 记录本地首页 URL，作为返回 API 模式时的导航目标。
-            if let Some(vw) = app.get_webview_window(MAIN_WINDOW) {
-                if let Ok(u) = vw.url() {
-                    app.state::<WebState>().set_home_url(u.to_string());
-                }
-            }
 
             // 窗口缩放时，重新摆位本地 UI 与（网页模式下）deepseek 子视图，否则它们不会跟着变大变小。
             ww.on_window_event(move |event| {

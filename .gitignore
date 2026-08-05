@@ -30,3 +30,7 @@ dmg-staging/
 DSonDT.dmg
 *.dmg
 windows-artifacts/
+
+# Portable / installer artifacts (uploaded to GitHub Releases, never committed)
+*.zip
+_writetest.toml
